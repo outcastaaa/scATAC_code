@@ -813,7 +813,7 @@ DimPlot(object = sample4, label = F, group.by = "batch")
 library(Matrix)
 library(tidyverse)
 library(chromVAR)
-set.seed(1978)
+# set.seed(1978) 为了别人复现结果
 library(data.table)
 library(Seurat)
 library(Signac)
@@ -822,6 +822,7 @@ library(BSgenome.Hsapiens.UCSC.hg38)
 library(EnsDb.Hsapiens.v86)
 
 merged.filt = readRDS( file = "/datadisk/Desktop/Projects/SCRNATAC/scATAC/files/merged234.Snap.filt.Rds")
+
 ```
 * Continue with merged data  
 ```r
@@ -1214,9 +1215,533 @@ for (ext in extensions) {
 saveRDS(test, file = "/datadisk/Desktop/Projects/SCRNATAC/scATAC/files/test.merged234.Snap.HA.ChromVar.Integr3kb.Rds")
 
 ```   
+# 绘图
+
+## Fig3A.Rmd  
+
+```r
+# title: "Figure 3A"
+# output: html_notebook
+
+library(Seurat)
+library(tidyverse)
+library(lemon)
+library(forcats)
+
+# loading objects
+test = readRDS("/datadisk/Desktop/Projects/SCRNATAC/scATAC/files/test.merged234.Snap.HA.ChromVar.Integr3kb.Rds")
 
 
 
 
+# plot the clustering as we want 
+clusterplot = DimPlot(test, pt.size = 0.1) + ggplot2::ggtitle("Harmony integration")
+df.cluster = clusterplot$data
+levels(df.cluster$ident)[levels(df.cluster$ident)=="0"] <- "7"
+df.cluster$ident = fct_relevel(df.cluster$ident, as.character(seq(1:7)))
+
+save = F
+plot3B = ggplot(df.cluster, aes(x = UMAP_1, y = UMAP_2, colour = ident)) + 
+  geom_point(size = 1, alpha = 1) + 
+  scale_colour_manual(values = c( '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0','#E6194B')) + 
+  xlab("UMAP1") + ylab("UMAP2") +
+  theme(panel.border=element_blank(), 
+        axis.line = element_line(colour = 'black', size = 1), 
+        axis.ticks = element_blank(),
+        axis.text = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.key=element_blank(),
+        legend.title=element_blank(),
+        legend.text=element_text(size=12)) +  
+  guides(color = guide_legend(override.aes = list(size=5))) + 
+  coord_capped_cart(bottom='right', left='none') 
+
+if (save) {
+  cairo_pdf(file = "/datadisk/Desktop/Projects/SCRNATAC/scATAC/plots/final/UMAPATAC.pdf",width = 8, height = 6)
+  print(plot3B)
+  dev.off()
+} else {
+  print(plot3B)
+}
+
+```
 
 
+
+
+# 我的重复
+
+得到了 merged234.Snap.filt.Rds (983.9 MB) 文件
+
+
+
+### MergedSamplesHarmony.Rmd  
+
+```r
+# title: "Merged ATAC-seq analysis + Harmony"
+# output: html_notebook
+
+library(Matrix)
+library(tidyverse)
+library(chromVAR)
+# set.seed(1978) 为了别人复现结果
+library(data.table)
+library(Seurat)
+library(Signac)
+library(harmony)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(EnsDb.Hsapiens.v86)
+
+getwd()
+# [1] "D:/scATAC/R_analyse"
+merged.filt = readRDS( file = "D:/scATAC/merged234.Snap.filt.Rds")
+
+```
+* Continue with merged data  
+```r
+set.seed(2017)
+merged.filt <- merged.filt %>% 
+               RunTFIDF( method = 2) %>%
+               FindTopFeatures( min.cutoff = 'q0') %>%
+               RunSVD(
+                assay = 'peaks',
+                reduction.key = 'LSI_',
+                reduction.name = 'lsi') 
+
+FeatureScatter(merged.filt, 'LSI_1', 'nCount_peaks')
+FeatureScatter(merged.filt, 'LSI_2', 'nCount_peaks') 
+pca.dim = 2:50
+merged.filt = merged.filt %>%
+               RunUMAP( reduction = 'lsi', dims = pca.dim, umap.method = "uwot",
+                        a = 1, b = 0.9, n.neighbors = 10) %>%
+               FindNeighbors( reduction = 'lsi', dims = pca.dim,annoy.metric = "cosine") %>%
+               FindClusters( resolution = 1,verbose = FALSE)
+
+ggplot() +
+  geom_point(aes(y = merged.filt@reductions$lsi@stdev / sum(merged.filt@reductions$lsi@stdev), x = 1:50)) + 
+  xlab("LSI dimensions") + ylab("Variance explaned")
+
+ggplot() + geom_point(aes(x = pca.dim, y = abs(sapply(pca.dim, function(i) cor(merged.filt@meta.data$nCount_peaks, merged.filt@reductions$lsi@cell.embeddings[,i]))))) +
+  xlab("LSI dimensions") + ylab("Correlation fragments in peaks with lsi dimension")
+
+ggplot() + geom_point(aes(x = pca.dim, y= abs(sapply(pca.dim, function(i) cor(merged.filt@meta.data$duplication_rate, merged.filt@reductions$lsi@cell.embeddings[,i]))))) +
+  xlab("LSI dimensions") + ylab("Correlation duplication rate with lsi dimension")
+
+
+
+
+DimPlot(object = merged.filt, label = TRUE) + NoLegend()
+
+DimPlot(object = merged.filt, label = F, group.by = "origin")
+
+DimPlot(object = merged.filt, label = F, group.by = "SAMPLE") #DimPlot_sample
+
+DimPlot(object = merged.filt, label = F, group.by = "batch")
+```
+
+* Harmony  
+```r
+
+library(harmony)
+set.seed(2017)
+pca.dim.cor = 2:50
+
+
+test <- harmony::RunHarmony(
+  object = merged.filt,
+  group.by.vars = c("SAMPLE","batch","origin"),
+  reduction = 'lsi',
+  assay.use = 'peaks',
+  project.dim = FALSE,
+  dims.use = pca.dim.cor,
+  max.iter.harmony = 20,
+   plot_convergence = T,
+  # tau = 5,
+  max.iter.cluster = 200,
+  sigma = 0.25,
+  theta = c(2,4,4)
+)
+
+
+
+
+# re-compute the UMAP using corrected LSI embeddings
+test <- test %>% RunUMAP(dims = 1:50, reduction = 'harmony',
+                          umap.method = "uwot", n.neighbors = 10, n.components = 2
+                        # a = 1, b = 0.9
+                        ) %>%
+                 FindNeighbors( reduction = 'harmony', dims = 1:50,annoy.metric = "cosine") %>%
+                 FindClusters( resolution = 0.45, verbose = FALSE)
+
+
+DimPlot(test, pt.size = 0.1) + ggplot2::ggtitle("Harmony integration")
+
+DimPlot(test, pt.size = 0.1, group.by = "SAMPLE")  #Har_DimPlot_sample
+DimPlot(test, pt.size = 0.1, group.by = "origin") 
+DimPlot(test, pt.size = 0.1, group.by = "batch") 
+
+saveRDS(test,  file = "D:/scATAC/test.merged234.Snap.HA.Rds")  
+
+成功！！！
+```    
+
+### chromVAR.Rmd  需要peak
+```r 
+# title: "chromVAR analysis"
+# output: html_notebook
+
+library(Matrix)
+library(tidyverse)
+library(chromVAR)
+library(motifmatchr)
+library(SummarizedExperiment)
+library(BiocParallel)
+set.seed(2017)
+library(TFBSTools)
+library(pheatmap)
+library(data.table)
+library(irlba)
+library(Seurat)
+library(Signac)
+library(harmony)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(EnsDb.Hsapiens.v86)
+```
+
+* Load peaks and Seurat object  
+
+```r
+# overlap all peaks 
+# get the couns matrix 
+peakfile <- "/datadisk/Desktop/Projects/SCRNATAC/scATAC/peaks/snapatac.clust.peaks.bed"
+
+peaks.df = as.data.frame(read_tsv(peakfile, col_names = F))
+peaks.df$ID = paste0(peaks.df$X1,":",peaks.df$X2,"-",peaks.df$X3)
+rownames(peaks.df) = peaks.df$ID
+# peakset = "consensus"
+peaks <- getPeaks(peakfile, sort_peaks = TRUE)
+
+
+
+# genome coordinates for binning 
+genome <- BSgenome.Hsapiens.UCSC.hg38
+seq.gen  = seqlengths(genome)
+
+ test = readRDS(file = "/datadisk/Desktop/Projects/SCRNATAC/scATAC/files/test.merged234.Snap.HA.Rds")
+```
+* Run ChromVAR  
+```r
+
+DefaultAssay(test) = "peaks"
+# run chromVAR 
+
+# prepare motifs 
+ motifs_name = "/datadisk/Desktop/Projects/SCRNATAC/scATAC/HOCO11HUMAN.pfmlist.rds"
+if (file.exists(motifs_name)) {
+  motifs <- readRDS(motifs_name)
+} else {
+  library(universalmotif)
+  library(TFBSTools)
+  library(rlist)
+  # data taken from https://hocomoco11.autosome.ru/final_bundle/hocomoco11/full/HUMAN/mono/HOCOMOCOv11_full_pwm_HUMAN_mono.tar.gz
+  # for file in pwm/*pwm; do echo "" >> "$file"; done
+  pathToPWMs = "/scratch/berest/SC/CVEJIC/pwm/"
+  pwmfiles = list.files(pathToPWMs)
+
+  empty.list <- list()
+
+  for (x in 1:length(pwmfiles)) {
+  
+    test1 = read_matrix(paste0(pathToPWMs,pwmfiles[x]), 
+                      headers = ">", sep = "", positions = "rows")
+    lel = convert_motifs(test1, class = "TFBSTools-PFMatrix")
+  
+    empty.list <- c(empty.list, lel)
+  
+  }
+
+  pfm.list <- do.call(PFMatrixList, empty.list)
+
+  list.save(pfm.list, file = motifs_name)
+  
+  motifs <- readRDS(motifs_name)
+}
+
+ 
+ 
+
+ # # Scan the DNA sequence of each peak for the presence of each motif
+ 
+ motif.matrix_name = "/g/scb2/zaugg/berest/Projects/collaborations/SCRNAATAC/scratch/CVEJIC/test/motifmatrix.merged234snap.Rds"
+ 
+ if (file.exists(motif.matrix_name)) {
+   motif.matrix = readRDS(file  = motif.matrix_name)
+ } else {
+   
+    motif.matrix <- CreateMotifMatrix(
+      features = StringToGRanges(rownames(test), sep = c("-", "-")),
+      pwm = motifs,
+      genome = 'hg38',
+      sep = c("-", "-"),
+      use.counts = FALSE
+    )
+    colnames(motif.matrix) = TFBSTools::name(motifs)
+    saveRDS(motif.matrix, file  = motif.matrix_name)
+
+    motif.matrix = readRDS(file  = motif.matrix_name)
+
+ }
+
+# Create a new Mofif object to store the results
+motif <- CreateMotifObject(
+  data = motif.matrix,
+  pwm = motifs
+)
+
+# Add the Motif object to the assay
+test[['peaks']] <- AddMotifObject(
+  object = test[['peaks']],
+  motif.object = motif
+)
+
+
+
+test <- RegionStats(
+  object = test,
+  genome = BSgenome.Hsapiens.UCSC.hg38,
+  sep = c("-", "-")
+)
+
+
+## actual running chromVar 
+test <- RunChromVAR(
+  object = test,
+  genome = BSgenome.Hsapiens.UCSC.hg38,
+  assay = "peaks"
+)
+
+library(ggrepel)
+library(rlist)
+library(plotly)
+deviations = as.matrix(GetAssayData(test, assay = "chromvar"))
+
+deviations.s = deviations[order(rowSds(deviations), decreasing = T),]
+
+
+nx = 20
+ggplot() + geom_point(aes(y = rowSds(deviations.s), x = 1:nrow(deviations.s), label = rownames(deviations.s))) + 
+  geom_label_repel(aes(y = rowSds(deviations.s[1:nx,]), x = 1:nrow(deviations.s[1:nx,]), 
+                       label = unlist(str_split(rownames(deviations.s)[1:nx],"-",simplify =  F) %>% list.map(.[1])) ))
+
+
+plot_ly(y = rowSds(deviations.s), x = 1:nrow(deviations.s),color = "black", name = unlist(str_split(rownames(deviations.s),"-",simplify =  F) %>% list.map(.[1]))
+) %>% layout(showlegend = FALSE)
+
+ deviations.s.plot = deviations.s[rowSds(deviations.s) > 1.2,]
+ nrow(deviations.s.plot)
+
+ saveRDS(test, file = "/datadisk/Desktop/Projects/SCRNATAC/scATAC/files/test.merged234.Snap.HA.ChromVar.Rds")
+```
+
+
+### IntegrateATACRNA3kb.Rmd  需要RNA-seq
+
+```r
+# title: "Integrate scRNA and scATAC"
+# output: html_notebook
+
+library(Matrix)
+library(tidyverse)
+library(chromVAR)
+set.seed(1978)
+library(data.table)
+library(Seurat)
+library(Signac)
+library(harmony)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(EnsDb.Hsapiens.v86)
+library(pals)
+library(ggrepel)
+library(patchwork)
+```
+* Load scRNA object  
+```r
+load("/datadisk/Desktop/Projects/SCRNATAC/scRNA/ScanpyToSeurat-20200329T150351Z-001/ScanpyToSeurat/RNA_all_samples.robj")
+```
+* load ATAC data    
+```r
+test = readRDS("/datadisk/Desktop/Projects/SCRNATAC/scATAC/files/test.merged234.Snap.HA.ChromVar.Rds")
+
+peakfile <- "/datadisk/Desktop/Projects/SCRNATAC/scATAC/peaks/snapatac.clust.peaks.bed"
+
+peaks.df = as.data.frame(read_tsv(peakfile, col_names = F))
+peaks.df$ID = paste0(peaks.df$X1,":",peaks.df$X2,"-",peaks.df$X3)
+rownames(peaks.df) = peaks.df$ID
+
+peakset = "consensus"
+peaks <- getPeaks(peakfile, sort_peaks = TRUE)
+
+
+# size of extension upstream and downstream in kb 
+
+extensions = c(3)
+ # extract gene coordinates from Ensembl, and ensure name formatting is consistent with Seurat object 
+gene.coords <- genes(EnsDb.Hsapiens.v86, filter = ~ gene_biotype == "protein_coding")
+seqlevelsStyle(gene.coords) <- 'UCSC'
+genebody.coords <- keepStandardChromosomes(gene.coords, pruning.mode = 'coarse')
+
+
+for (ext in extensions) {
+  
+  
+ 
+genebodyandpromoter.coords <- Extend(x = gene.coords, upstream = 1000*ext, downstream = 1000*ext)
+
+
+if (file.exists(paste0("/datadisk/Desktop/Projects/SCRNATAC/scATAC/geneact/GENEact.",ext,
+                                       "kdownup.merged2l234.rds"))) {
+  
+   gene.activities = readRDS(file = paste0("/datadisk/Desktop/Projects/SCRNATAC/scATAC/geneact/GENEact.",ext,
+                                         "kdownup.merged2l234.rds"))
+} else {
+  gene.activities <- FeatureMatrix(
+    fragments = "/datadisk/Desktop/Projects/SCRNATAC/scATAC/fragments/merged.l234.sort.CO.bed.gz",
+    features = genebodyandpromoter.coords,
+    chunk = 20,
+    cells = rownames(test@meta.data)
+  )
+  saveRDS(gene.activities, file = paste0("/datadisk/Desktop/Projects/SCRNATAC/scATAC/geneact/GENEact.",ext,
+                                       "kdownup.merged2l234.rds"))
+
+
+  gene.activities = readRDS(file = paste0("/datadisk/Desktop/Projects/SCRNATAC/scATAC/geneact/GENEact.",ext,
+                                         "kdownup.merged2l234.rds"))
+
+  
+  }
+
+
+ gene.key <- genebodyandpromoter.coords$gene_name
+names(gene.key) <- GRangesToString(grange = genebodyandpromoter.coords)
+
+
+rownames(gene.activities) <- gene.key[rownames(gene.activities)]
+
+gene.activities = gene.activities[unique(rownames(gene.activities)),]
+
+# add the gene activity matrix to the Seurat object as a new assay, and normalize it
+test[[paste0("RNA_geneprom_",ext,"kb")]] <- CreateAssayObject(counts = gene.activities)
+# test = BinarizeCounts(object = test, assay = c("RNA"))
+
+test <- NormalizeData(
+  object = test,
+  assay = paste0("RNA_geneprom_",ext,"kb"),
+  normalization.method = 'LogNormalize',
+  scale.factor = median(test@meta.data[,paste0("nFeature_RNA_geneprom_",ext,"kb")])
+)
+
+rm(gene.activities)
+  
+  
+}
+
+
+
+RNAcatsign = names(table(merged@meta.data[which(merged@meta.data$gate == "38-"),"annotation_merged"]))[table(merged@meta.data[which(merged@meta.data$gate == "38-"),"annotation_merged"]) > 20]
+
+
+for (ext in extensions) {
+  #  ext = 3
+  transfer.anchors <- FindTransferAnchors(
+    reference = subset(merged, subset = gate == "38-" & annotation_merged %in% RNAcatsign),
+    query = test,
+    reduction = 'cca',
+    query.assay = paste0("RNA_geneprom_",ext,"kb"),
+    features = rownames(test@assays[[paste0("RNA_geneprom_",ext,"kb")]]@counts),
+    verbose = T
+  )
+
+
+  kweight = 6
+    cutoff = 0.4 
+    predicted.labels <- TransferData(
+    anchorset = transfer.anchors,
+    refdata = subset(merged, subset = gate == "38-" & annotation_merged %in% RNAcatsign)$annotation_merged,  
+    weight.reduction = test[['harmony']],
+    dims = 1:50,
+    k.weight = kweight
+    
+  )
+  
+  
+  datatable.test = data.table(predicted.labels, keep.rownames = T)
+
+
+  cutoff = 0.4
+
+  datatable.test$predicted.id = ifelse(datatable.test$prediction.score.max < cutoff, "notsign", datatable.test$predicted.id)
+
+  datatable.test = as.data.frame(datatable.test)
+  rownames(datatable.test) = datatable.test$rn
+  
+  test <- AddMetaData(object = test, metadata = as.data.frame(datatable.test))
+}
+    
+saveRDS(test, file = "/datadisk/Desktop/Projects/SCRNATAC/scATAC/files/test.merged234.Snap.HA.ChromVar.Integr3kb.Rds")
+
+```   
+
+## Fig3A.Rmd  
+
+```r
+# title: "Figure 3A"
+# output: html_notebook
+
+BiocManager::install("lemon", force = TRUE)
+BiocManager::install("forcats", force = TRUE)
+library(Seurat)
+library(tidyverse)
+library(lemon)
+library(forcats)
+
+# loading objects
+test2 = readRDS("D:/scATAC/test.merged234.Snap.HA.Rds")  # 此处作为演示，输入文件不对
+
+
+
+
+# plot the clustering as we want 
+clusterplot = DimPlot(test2, pt.size = 0.1) + ggplot2::ggtitle("Harmony integration")
+df.cluster = clusterplot$data
+levels(df.cluster$ident)[levels(df.cluster$ident)=="0"] <- "7"
+df.cluster$ident = fct_relevel(df.cluster$ident, as.character(seq(1:7)))
+
+save = F
+plot3B = ggplot(df.cluster, aes(x = UMAP_1, y = UMAP_2, colour = ident)) + 
+  geom_point(size = 1, alpha = 1) + 
+  scale_colour_manual(values = c( '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0','#E6194B')) + 
+  xlab("UMAP1") + ylab("UMAP2") +
+  theme(panel.border=element_blank(), 
+        axis.line = element_line(colour = 'black', size = 1), 
+        axis.ticks = element_blank(),
+        axis.text = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.key=element_blank(),
+        legend.title=element_blank(),
+        legend.text=element_text(size=12)) +  
+  guides(color = guide_legend(override.aes = list(size=5))) + 
+  coord_capped_cart(bottom='right', left='none') 
+
+if (save) {
+  cairo_pdf(file = "/datadisk/Desktop/Projects/SCRNATAC/scATAC/plots/final/UMAPATAC.pdf",width = 8, height = 6)
+  print(plot3B)
+  dev.off()
+} else {
+  print(plot3B)
+}
+
+```
