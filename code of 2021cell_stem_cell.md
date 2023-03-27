@@ -1271,11 +1271,189 @@ if (save) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # 我的重复
 
 得到了 merged234.Snap.filt.Rds (983.9 MB) 文件
 
+### IndividualSamples.Rmd  
 
+```r
+# title: "scATAC for individual samples"
+# output: html_notebook
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("Matrix", force = TRUE)
+BiocManager::install("tidyverse", force = TRUE)
+BiocManager::install("chromVAR", force = TRUE)
+BiocManager::install("motifmatchr", force = TRUE)
+BiocManager::install("SummarizedExperiment", force = TRUE)
+BiocManager::install("BiocParallel", force = TRUE)
+BiocManager::install("TFBSTools", force = TRUE)
+BiocManager::install("pheatmap", force = TRUE)
+BiocManager::install("data.table", force = TRUE)
+BiocManager::install("irlba", force = TRUE)
+BiocManager::install("Seurat", force = TRUE)
+BiocManager::install("harmony", force = TRUE)
+BiocManager::install("BSgenome.Hsapiens.UCSC.hg38", force = TRUE)
+BiocManager::install("EnsDb.Hsapiens.v86", force = TRUE)
+
+library(Matrix)
+library(tidyverse)
+library(chromVAR)
+library(motifmatchr)
+library(SummarizedExperiment)
+library(BiocParallel)
+library(TFBSTools)
+library(pheatmap)
+library(data.table)
+library(irlba)
+library(Seurat)
+library(Signac)
+library(harmony)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(EnsDb.Hsapiens.v86)
+
+merged.filt = readRDS( file = "D:/scATAC/merged234.Snap.filt.Rds")
+```
+
+* sample 2 
+```r
+sample2 = subset(merged.filt, subset = SAMPLE == "Sample2")
+
+pca.dim = 1:50
+sample2 <- sample2 %>% 
+               RunTFIDF( method = 2) %>%
+               FindTopFeatures( min.cutoff = 'q0') %>%
+               RunSVD(
+                assay = 'peaks',
+                reduction.key = 'LSI_',
+                reduction.name = 'lsi') %>%
+               RunUMAP( reduction = 'lsi', dims = pca.dim, umap.method = "uwot",
+                        a = 1, b = 0.9, n.neighbors = 10) %>%
+               FindNeighbors( reduction = 'lsi', dims = pca.dim,annoy.metric = "cosine") %>%
+               FindClusters( resolution = 1,verbose = FALSE)
+
+ggplot() +
+  geom_point(aes(y = sample2@reductions$lsi@stdev / sum(sample2@reductions$lsi@stdev), x = 1:50)) + 
+  xlab("LSI dimensions") + ylab("Variance explaned")
+
+ggplot() + geom_point(aes(x = pca.dim, y = abs(sapply(pca.dim, function(i) cor(sample2@meta.data$nCount_peaks, sample2@reductions$lsi@cell.embeddings[,i]))))) +
+  xlab("LSI dimensions") + ylab("Correlation fragments in peaks with lsi dimension")
+
+ggplot() + geom_point(aes(x = pca.dim, y= abs(sapply(pca.dim, function(i) cor(sample2@meta.data$duplication_rate, sample2@reductions$lsi@cell.embeddings[,i]))))) +
+  xlab("LSI dimensions") + ylab("Correlation duplication rate with lsi dimension")
+
+
+
+DimPlot(object = sample2, label = TRUE) + NoLegend()
+
+DimPlot(object = sample2, label = F, group.by = "origin")
+
+DimPlot(object = sample2, label = F, group.by = "SAMPLE")
+
+DimPlot(object = sample2, label = F, group.by = "batch")
+```
+* sample 3  
+```r
+sample3 = subset(merged.filt, subset = SAMPLE == "Sample3")
+
+pca.dim = 1:50
+sample3 <- sample3 %>% 
+               RunTFIDF( method = 2) %>%
+               FindTopFeatures( min.cutoff = 'q0') %>%
+               RunSVD(
+                assay = 'peaks',
+                reduction.key = 'LSI_',
+                reduction.name = 'lsi') %>%
+               RunUMAP( reduction = 'lsi', dims = pca.dim, umap.method = "uwot",
+                        a = 1, b = 0.9, n.neighbors = 10) %>%
+               FindNeighbors( reduction = 'lsi', dims = pca.dim,annoy.metric = "cosine") %>%
+               FindClusters( resolution = 1,verbose = FALSE)
+
+ggplot() +
+  geom_point(aes(y = sample3@reductions$lsi@stdev / sum(sample3@reductions$lsi@stdev), x = 1:50)) + 
+  xlab("LSI dimensions") + ylab("Variance explaned")
+
+ggplot() + geom_point(aes(x = pca.dim, y = abs(sapply(pca.dim, function(i) cor(sample3@meta.data$nCount_peaks, sample3@reductions$lsi@cell.embeddings[,i]))))) +
+  xlab("LSI dimensions") + ylab("Correlation fragments in peaks with lsi dimension")
+
+ggplot() + geom_point(aes(x = pca.dim, y= abs(sapply(pca.dim, function(i) cor(sample3@meta.data$duplication_rate, sample3@reductions$lsi@cell.embeddings[,i]))))) +
+  xlab("LSI dimensions") + ylab("Correlation duplication rate with lsi dimension")
+
+
+
+
+DimPlot(object = sample3, label = TRUE) + NoLegend()
+
+DimPlot(object = sample3, label = F, group.by = "origin")
+
+DimPlot(object = sample3, label = F, group.by = "SAMPLE")
+
+DimPlot(object = sample3, label = F, group.by = "batch")
+```
+
+* sample 4  
+```r
+sample4 = subset(merged.filt, subset = SAMPLE == "Sample4")
+
+pca.dim = 1:50
+sample4 <- sample4 %>% 
+               RunTFIDF( method = 2) %>%
+               FindTopFeatures( min.cutoff = 'q0') %>%
+               RunSVD(
+                assay = 'peaks',
+                reduction.key = 'LSI_',
+                reduction.name = 'lsi') %>%
+               RunUMAP( reduction = 'lsi', dims = pca.dim, umap.method = "uwot",
+                        a = 1, b = 0.9, n.neighbors = 10) %>%
+               FindNeighbors( reduction = 'lsi', dims = pca.dim,annoy.metric = "cosine") 
+
+
+    sample4 = FindClusters(sample4, resolution = 1,verbose = TRUE)
+
+ggplot() +
+  geom_point(aes(y = sample4@reductions$lsi@stdev / sum(sample4@reductions$lsi@stdev), x = 1:50)) + 
+  xlab("LSI dimensions") + ylab("Variance explaned")
+
+ggplot() + geom_point(aes(x = pca.dim, y = abs(sapply(pca.dim, function(i) cor(sample4@meta.data$nCount_peaks, sample4@reductions$lsi@cell.embeddings[,i]))))) +
+  xlab("LSI dimensions") + ylab("Correlation fragments in peaks with lsi dimension")
+
+ggplot() + geom_point(aes(x = pca.dim, y= abs(sapply(pca.dim, function(i) cor(sample4@meta.data$duplication_rate, sample4@reductions$lsi@cell.embeddings[,i]))))) +
+  xlab("LSI dimensions") + ylab("Correlation duplication rate with lsi dimension")
+
+
+
+
+DimPlot(object = sample4, label = TRUE) + NoLegend()
+
+DimPlot(object = sample4, label = F, group.by = "origin")
+
+DimPlot(object = sample4, label = F, group.by = "SAMPLE")
+
+DimPlot(object = sample4, label = F, group.by = "batch")
+```
 
 ### MergedSamplesHarmony.Rmd  
 
@@ -1415,7 +1593,7 @@ library(EnsDb.Hsapiens.v86)
 ```r
 # overlap all peaks 
 # get the couns matrix 
-peakfile <- "/datadisk/Desktop/Projects/SCRNATAC/scATAC/peaks/snapatac.clust.peaks.bed"
+peakfile <- "D:/integrative-scrna-scatac-human-foetal-master-Data-scATAC_CSV_file_for_Scanpy/mergedATAC-peaks.bed"
 
 peaks.df = as.data.frame(read_tsv(peakfile, col_names = F))
 peaks.df$ID = paste0(peaks.df$X1,":",peaks.df$X2,"-",peaks.df$X3)
