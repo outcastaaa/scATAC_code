@@ -95,16 +95,23 @@ bioraddbg/atac-seq-trim-reads \
 -i /data/debarcoded_reads -o /data/trimmed_reads
 
 
-echo "<=== 4.quality control again ===>"
+echo "<=== 4.可选quality control again ===>"
 mkdir -p /mnt/d/scATAC/sci_reports2022/fastqc/again
 cd /mnt/d/scATAC/sci_reports2022/trimmed
 fastqc -t 8 -o ../fastqc/again   ./*.gz 
 cd /mnt/d/scATAC/sci_reports2022/fastqc/again
 multiqc .
 ```
-
+* [基因组网站](https://hgdownload.soe.ucsc.edu/downloads.html)
 ```bash
 # align
+
+## mkdir
+/mnt/d/scATAC/sci_reports2022/genome
+mkdir -p /mnt/d/scATAC/sci_reports2022/genome/mm10/bwa
+mkdir -p /mnt/d/scATAC/sci_reports2022/genome/mm10/annotation/blacklist
+mkdir -p /mnt/d/scATAC/sci_reports2022/genome/mm10/annotation/TSS
+
 ## 下载基因组
 cd /mnt/d/scATAC/sci_reports2022/genome
 for i in {1..19} 
@@ -112,22 +119,32 @@ do
   echo $i
   wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/chromosomes/chr$i.fa.gz
 done
-## 建索引
-docker run --rm -it -v ~/genomes/hg19/:/genome/
---entrypoint "/bin/bash"
+cat $(ls *.fa.gz) > mm10.fa.gz
+gunzip mm10.fa.gz
+## TSS and blacklist annotation
+cd /mnt/d/scATAC/sci_reports2022/genome/mm10/annotation/TSS
+wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/database/refGene.txt.gz
+gunzip refGene.txt.gz
+awk '{if($4=="-"){v=$6}else{v=$5} print $3,v,v,$4}' OFS='\t' refGene.txt | awk 'length($1) <10 {print $0}' | awk '$1 != "chrY" {print $0}' | sortBed -i stdin | uniq > mm10.refgene.tss.bed
+wget http://hgdownload.cse.ucsc.edu/goldenpath/mm10/database/chromInfo.txt.gz
+gunzip chromInfo.txt.gz
+bedtools slop -i mm10.refgene.tss.bed -g chromInfo.txt -b 2000 > mm10.regene.tss.2k.bed
+cd $genome/mm10/annotation/blacklist  # 在ATAC中复制
+
+
+
+## mount the genome
+docker run --rm -it -v /mnt/d/scATAC/sci_reports2022/genome/:/genome/ \
+--entrypoint "/bin/bash" \
 bioraddbg/atac-seq-bwa
-
-mkdir -p /mnt/d/scATAC/sci_reports2022/genome/bwa_index
-bwa_index=/mnt/d/scATAC/sci_reports2022/genome/bwa_index
-bwa index -p $bwa_index/mm10 
-
-
-
+## 建索引
+cd /mnt/d/scATAC/sci_reports2022/genome/mm10/bwa
+bwa index -p bwa_index /mnt/d/scATAC/sci_reports2022/genome/mm10.fa
 
 
 echo "<=== 5.reads alignment ===>"
 mkdir -p /mnt/d/scATAC/sci_reports2022/alignment
-bowtie2_index=/mnt/d/scATAC/sci_reports2022/genome/mm10
+bowtie2_index=/mnt/d/scATAC/sci_reports2022/genome/bwa_index
 align_dir=/mnt/d/scATAC/sci_reports2022/alignment
 
 cd /mnt/d/scATAC/sci_reports2022/trimmed
@@ -136,12 +153,34 @@ bowtie2  -p 7 -x  $bowtie2_index --very-sensitive -X 2000 -1  1.fq.gz -2 2.fq.gz
   -S $align_dir/sample.sam 
 
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
--v /mnt/d/scATAC/sci_reports2022/genome/bwa_index/:/genome/ \
-bioraddbg/atac-seq-trim-reads \
+-v /mnt/d/scATAC/sci_reports2022/genome/mm10/:/genome/ \
+bioraddbg/atac-seq-bwa \
 -i /data/trimmed_reads/ -o /data/alignments/ \
--r /genome/
+-r /genome/bwa/
 ```
-* [基因组网站](https://hgdownload.soe.ucsc.edu/downloads.html)
+```bash
+# alignment QC  
+
+echo "<=== 6.alignment QC ===>"
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+-v /mnt/d/scATAC/sci_reports2022/genome/:/genome/ \
+bioraddbg/atac-seq-alignment-qc \
+-i /data/alignments/ \
+-r /genome/mm10.fa
+-o /data/alignment_qc
+```
+
+```bash
+# bead filtration 
+
+echo "<=== 6.alignment QC ===>"
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-filter-beads \
+-i /data/alignments/ \
+-o /data/bead_filtration/ \
+-r mm10
+
+```
 
 
 
