@@ -43,7 +43,7 @@ rm *.sra
 echo "<=== move to target dir ===>"
 mkdir -p /mnt/d/scATAC/sci_reports2022/sequence
 cd /mnt/d/scATAC/sci_reports2022/sequence
-ln -s  ~/data/sra/SRR13783625_?.fastq.gz  /mnt/d/scATAC/sci_reports2022/sequence/
+cp  ~/data/sra/SRR13783625_?.fastq.gz  /mnt/d/scATAC/sci_reports2022/sequence/
 ```
 
 ```bash
@@ -60,33 +60,96 @@ rm mm10.zip
 ```bash
 # quality control
 
-echo "<=== quality control ===>"
+echo "<=== 1.quality control ===>"
 mkdir -p /mnt/d/scATAC/sci_reports2022/fastqc
 fastqc -t 8 -o /mnt/d/scATAC/sci_reports2022/fastqc /mnt/d/scATAC/sci_reports2022/sequence/*.gz 
 cd /mnt/d/scATAC/sci_reports2022/fastqc 
 multiqc .
 
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-fastqc \
+-i /data/ -o /data/fastqc_results
 
-echo "<=== debarcoding ===>"
+
+echo "<=== 2.debarcoding ===>"
 cd ~/data/sra
 source venv3/bin/activate
 mkdir -p /mnt/d/scATAC/sci_reports2022/debarcode
-cd /mnt/d/scATAC/sci_reports2022/debarcode/
-bap-barcode v2.1 -a /mnt/d/scATAC/sci_reports2022/sequence/SRR13783625_1.fastq.gz -b /mnt/d/scATAC/sci_reports2022/sequence/SRR13783625_2.fastq.gz --nmismatches 1 
+cd /mnt/d/scATAC/sci_reports2022/sequence/
+bap-barcode v2.1 -a ./SRR13783625_1.fastq.gz -b ./SRR13783625_2.fastq.gz --nmismatches 1 -o ../debarcode/ -c 1 
 
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-debarcode-dbg \
+-i /data/ -o /data/debarcoded_reads
+# 注意此处，一定命名为 *R1_*.fastq.gz & *R2_*.fastq.gz，否则无法识别
+# The outputs of debarcoding are debarcoded FASTQ files. Also included is a summary report of thedebarcoding process, 
+# indicating how many reads were correctly debarcoded. All reads that faileddebarcoding will have been discarded.
 
-echo "<=== read trimming ===>"
+echo "<=== 3.read trimming ===>"
 mkdir -p /mnt/d/scATAC/sci_reports2022/trimmed
-cd mkdir -p /mnt/d/scATAC/sci_reports2022/debarcode
-trim_galore --phred33 --length 35 -e 0.1 --stringency 3 --paired -o /mnt/d/scATAC/sci_reports2022/trimmed/  R1.fastq.gz R2.fastq.gz  
+cd /mnt/d/scATAC/sci_reports2022/debarcode
+trim_galore --phred33 --length 35 -e 0.1 --stringency 3 --paired -o ../trimmed/  R1.fastq.gz R2.fastq.gz  
+
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-trim-reads \
+-i /data/debarcoded_reads -o /data/trimmed_reads
 
 
-echo "<=== quality control again ===>"
+echo "<=== 4.quality control again ===>"
 mkdir -p /mnt/d/scATAC/sci_reports2022/fastqc/again
-fastqc -t 8 -o /mnt/d/scATAC/sci_reports2022/fastqc/again /mnt/d/scATAC/sci_reports2022/trimmed/*.gz 
+cd /mnt/d/scATAC/sci_reports2022/trimmed
+fastqc -t 8 -o ../fastqc/again   ./*.gz 
 cd /mnt/d/scATAC/sci_reports2022/fastqc/again
 multiqc .
 ```
+
+```bash
+# align
+## 下载基因组
+cd /mnt/d/scATAC/sci_reports2022/genome
+for i in {1..19} 
+do
+  echo $i
+  wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/chromosomes/chr$i.fa.gz
+done
+## 建索引
+docker run --rm -it -v ~/genomes/hg19/:/genome/
+--entrypoint "/bin/bash"
+bioraddbg/atac-seq-bwa
+
+mkdir -p /mnt/d/scATAC/sci_reports2022/genome/bwa_index
+bwa_index=/mnt/d/scATAC/sci_reports2022/genome/bwa_index
+bwa index -p $bwa_index/mm10 
+
+
+
+
+
+echo "<=== 5.reads alignment ===>"
+mkdir -p /mnt/d/scATAC/sci_reports2022/alignment
+bowtie2_index=/mnt/d/scATAC/sci_reports2022/genome/mm10
+align_dir=/mnt/d/scATAC/sci_reports2022/alignment
+
+cd /mnt/d/scATAC/sci_reports2022/trimmed
+bowtie2  -p 7 -x  $bowtie2_index --very-sensitive -X 2000 -1  1.fq.gz -2 2.fq.gz \
+  2>$align_dir/sample.summary \
+  -S $align_dir/sample.sam 
+
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+-v /mnt/d/scATAC/sci_reports2022/genome/bwa_index/:/genome/ \
+bioraddbg/atac-seq-trim-reads \
+-i /data/trimmed_reads/ -o /data/alignments/ \
+-r /genome/
+```
+* [基因组网站](https://hgdownload.soe.ucsc.edu/downloads.html)
+
+
+
+
+
+
+
+
 
 For generation of the fragments fle, which contain the start and end 
 genomic coordinates of all aligned sequenced fragments, sorted bam fles were further process with “bap-frag” 
