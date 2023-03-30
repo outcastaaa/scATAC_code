@@ -88,12 +88,12 @@ bioraddbg/atac-seq-debarcode-dbg \
 echo "<=== 3.read trimming ===>"
 mkdir -p /mnt/d/scATAC/sci_reports2022/trimmed
 cd /mnt/d/scATAC/sci_reports2022/debarcode
-trim_galore --phred33 --length 35 -e 0.1 --stringency 3 --paired -o ../trimmed/  R1.fastq.gz R2.fastq.gz  
+trim_galore --phred33 --length 35 -e 0.1 --stringency 3 --paired -o /mnt/d/scATAC/sci_reports2022/trimmed/  R1.fastq.gz R2.fastq.gz  
 
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 bioraddbg/atac-seq-trim-reads \
 -i /data/debarcoded_reads -o /data/trimmed_reads
-
+# 太慢了，直接运行下一步
 
 echo "<=== 4.可选quality control again ===>"
 mkdir -p /mnt/d/scATAC/sci_reports2022/fastqc/again
@@ -155,7 +155,7 @@ bowtie2  -p 7 -x  $bowtie2_index --very-sensitive -X 2000 -1  1.fq.gz -2 2.fq.gz
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 -v /mnt/d/scATAC/sci_reports2022/genome/mm10/:/genome/ \
 bioraddbg/atac-seq-bwa \
--i /data/trimmed_reads/ -o /data/alignments/ \
+-i /data/debarcoded_reads -o /data/alignments/ \
 -r /genome/bwa/
 ```
 ```bash
@@ -169,25 +169,91 @@ bioraddbg/atac-seq-alignment-qc \
 -r /genome/mm10.fa
 -o /data/alignment_qc
 ```
+* bead filtration  
+The output of the Alignments Tool is used as the input to Bead Filtration. lf a different alignment method isused, a directory containing a position-sorted, indexed .bam file with bead barcodes annotated as XB:Z can be substituted.  
+
 
 ```bash
 # bead filtration 
 
-echo "<=== 6.alignment QC ===>"
+echo "<=== 7.bead filtration ===>"
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 bioraddbg/atac-seq-filter-beads \
 -i /data/alignments/ \
 -o /data/bead_filtration/ \
 -r mm10
-
 ```
 
+* At a high level, this Tool takes the bead barcodes that were deemed to contain DNA fragments from cells and
+merges bead barcodes that “see the same cell to a droplet barcode.  
 
 
+```bash
+# bead deconvolution
 
+echo "<=== 8.bead deconvolution ===>"
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-deconvolute \
+-i /data/alignments/ \
+-f /data/bead_filtration/ \
+-r mm10 \
+-o /data/deconvoluted_data/ 
+```
 
+```bash
+# cell filtratron
 
+echo "<=== 9.cell filtratron ===>"
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-cell-filter \
+-i /data/deconvoluted_data/ \
+-r mm10 \
+-o /data/cells_filtered/ 
+```
+## 比对
+```bash
+# peak calling
 
+echo "<=== 10.peak calling ===>"
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-macs2 \
+-i /data/deconvoluted_data/ \
+-r mm10 \
+-o /data/peaks/ 
+```
+```bash
+# ATAC-seq QC
+
+echo "<=== 11.ATAC-seq QC ===>"
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-qc \
+-r mm10 \
+-d /data/cells_filtered \
+-p /data/peaks \
+-o /data/count_matrix
+```
+## report
+```bash
+# report
+
+echo "<=== 12.report===>"
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-report \
+-i /data/ \
+-o /data/report
+```
+## 建立矩阵
+```bash
+# count matrix
+
+echo "<=== 12.cells-by-peaks count matrix ===>"
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-chromvar \
+-r mm10 \
+-d /data/deconvoluted_data/ \
+-p /data/peaks \
+-o /data/atac_qc
+```
 
 
 For generation of the fragments fle, which contain the start and end 
