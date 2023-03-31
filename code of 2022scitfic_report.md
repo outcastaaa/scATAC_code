@@ -109,18 +109,29 @@ multiqc .
 ## mkdir
 /mnt/d/scATAC/sci_reports2022/genome
 mkdir -p /mnt/d/scATAC/sci_reports2022/genome/mm10/bwa
+mkdir -p /mnt/d/scATAC/sci_reports2022/genome/mm10/bwa_chrX
 mkdir -p /mnt/d/scATAC/sci_reports2022/genome/mm10/annotation/blacklist
 mkdir -p /mnt/d/scATAC/sci_reports2022/genome/mm10/annotation/TSS
 
 ## 下载基因组
 cd /mnt/d/scATAC/sci_reports2022/genome
+# 只下载1-19
 for i in {1..19} 
 do
   echo $i
   wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/chromosomes/chr$i.fa.gz
 done
-cat $(ls *.fa.gz) > mm10.fa.gz
+wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/chromosomes/chrX.fa.gz
+cat $(ls *.fa.gz) > mm10.fa.gz   #gzip -dc chrX.fa.gz >> mm10.fa
 gunzip mm10.fa.gz
+
+# 按照tutrial中代码
+mkdir -p /mnt/d/scATAC/sci_reports2022/genome/mm10/fasta
+cd /mnt/d/scATAC/sci_reports2022/genome/mm10/fasta
+wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/chromosomes/*.fa.gz # 下载不了
+cat $(ls *.fa.gz | grep -v _) > mm10.fa.gz
+gunzip mm10.fa.gz
+
 ## TSS and blacklist annotation
 cd /mnt/d/scATAC/sci_reports2022/genome/mm10/annotation/TSS
 wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/database/refGene.txt.gz
@@ -138,7 +149,7 @@ docker run --rm -it -v /mnt/d/scATAC/sci_reports2022/genome/:/genome/ \
 --entrypoint "/bin/bash" \
 bioraddbg/atac-seq-bwa
 ## 建索引
-cd /mnt/d/scATAC/sci_reports2022/genome/mm10/bwa
+cd /mnt/d/scATAC/sci_reports2022/genome/mm10/bwa_chrX
 bwa index -p bwa_index /mnt/d/scATAC/sci_reports2022/genome/mm10.fa
 
 
@@ -152,11 +163,14 @@ bowtie2  -p 7 -x  $bowtie2_index --very-sensitive -X 2000 -1  1.fq.gz -2 2.fq.gz
   2>$align_dir/sample.summary \
   -S $align_dir/sample.sam 
 
+
+
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 -v /mnt/d/scATAC/sci_reports2022/genome/mm10/:/genome/ \
 bioraddbg/atac-seq-bwa \
--i /data/debarcoded_reads -o /data/alignments/ \
--r /genome/bwa/
+-i /data/debarcoded_reads \
+-o /data/alignment_chrX/ \
+-r /genome/bwa_chrX/
 ```
 ```bash
 # alignment QC  
@@ -165,9 +179,9 @@ echo "<=== 6.alignment QC ===>"
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 -v /mnt/d/scATAC/sci_reports2022/genome/:/genome/ \
 bioraddbg/atac-seq-alignment-qc \
--i /data/alignments/ \
--r /genome/mm10.fa
--o /data/alignment_qc
+-i /data/alignment_chrX/ \
+-r /genome/mm10.fa \
+-o /data/alignment_qc_chrX
 ```
 * bead filtration  
 The output of the Alignments Tool is used as the input to Bead Filtration. lf a different alignment method isused, a directory containing a position-sorted, indexed .bam file with bead barcodes annotated as XB:Z can be substituted.  
@@ -176,10 +190,11 @@ The output of the Alignments Tool is used as the input to Bead Filtration. lf a 
 ```bash
 # bead filtration 
 
+# 加了chrX
 echo "<=== 7.bead filtration ===>"
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 bioraddbg/atac-seq-filter-beads \
--i /data/alignments/ \
+-i /data/alignment_chrX/ \
 -o /data/bead_filtration/ \
 -r mm10
 ```
@@ -194,7 +209,7 @@ merges bead barcodes that “see the same cell to a droplet barcode.
 echo "<=== 8.bead deconvolution ===>"
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 bioraddbg/atac-seq-deconvolute \
--i /data/alignments/ \
+-i /data/alignment_chrX/ \
 -f /data/bead_filtration/ \
 -r mm10 \
 -o /data/deconvoluted_data/ 
@@ -219,7 +234,14 @@ docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 bioraddbg/atac-seq-macs2 \
 -i /data/deconvoluted_data/ \
 -r mm10 \
--o /data/peaks/ 
+-o /data/peaks 
+
+# alignments/中数据尝试，错误的步骤
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-macs2 \
+-i /data/alignments/ \
+-r mm10 \
+-o /data/err_peaks/ 
 ```
 ```bash
 # ATAC-seq QC
@@ -228,20 +250,11 @@ echo "<=== 11.ATAC-seq QC ===>"
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 bioraddbg/atac-seq-qc \
 -r mm10 \
--d /data/cells_filtered \
+-d /data/deconvoluted_data/ \
 -p /data/peaks \
--o /data/count_matrix
+-o /data/atac_qc
 ```
-## report
-```bash
-# report
 
-echo "<=== 12.report===>"
-docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
-bioraddbg/atac-seq-report \
--i /data/ \
--o /data/report
-```
 ## 建立矩阵
 ```bash
 # count matrix
@@ -250,10 +263,21 @@ echo "<=== 12.cells-by-peaks count matrix ===>"
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 bioraddbg/atac-seq-chromvar \
 -r mm10 \
--d /data/deconvoluted_data/ \
+-d /data/cells_filtered/ \
 -p /data/peaks \
--o /data/atac_qc
+-o /data/count_matrix
 ```
+## report
+```bash
+# report
+
+echo "<=== 13.report===>"
+docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
+bioraddbg/atac-seq-report \
+-i /data/ \
+-o /data/report
+```
+
 
 
 For generation of the fragments fle, which contain the start and end 
