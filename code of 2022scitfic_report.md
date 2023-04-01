@@ -122,7 +122,12 @@ do
   wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/chromosomes/chr$i.fa.gz
 done
 wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/chromosomes/chrX.fa.gz
-cat $(ls *.fa.gz) > mm10.fa.gz   #gzip -dc chrX.fa.gz >> mm10.fa
+wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/chromosomes/chrY.fa.gz
+wget https://hgdownload.cse.ucsc.edu/goldenpath/mm10/chromosomes/chrM.fa.gz
+cat $(ls *.fa.gz) > mm10.fa.gz   
+#gzip -dc chrX.fa.gz >> mm10.fa
+#gzip -dc chrY.fa.gz >> mm10.fa
+#gzip -dc chrM.fa.gz >> mm10.fa
 gunzip mm10.fa.gz
 
 # 按照tutrial中代码
@@ -149,7 +154,7 @@ docker run --rm -it -v /mnt/d/scATAC/sci_reports2022/genome/:/genome/ \
 --entrypoint "/bin/bash" \
 bioraddbg/atac-seq-bwa
 ## 建索引
-cd /mnt/d/scATAC/sci_reports2022/genome/mm10/bwa_chrX
+cd /mnt/d/scATAC/sci_reports2022/genome/mm10/bwa_all
 bwa index -p bwa_index /mnt/d/scATAC/sci_reports2022/genome/mm10.fa
 
 
@@ -169,8 +174,8 @@ docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 -v /mnt/d/scATAC/sci_reports2022/genome/mm10/:/genome/ \
 bioraddbg/atac-seq-bwa \
 -i /data/debarcoded_reads \
--o /data/alignment_chrX/ \
--r /genome/bwa_chrX/
+-o /data/alignments_all/ \
+-r /genome/bwa_all/
 ```
 ```bash
 # alignment QC  
@@ -179,9 +184,9 @@ echo "<=== 6.alignment QC ===>"
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 -v /mnt/d/scATAC/sci_reports2022/genome/:/genome/ \
 bioraddbg/atac-seq-alignment-qc \
--i /data/alignment_chrX/ \
+-i /data/alignments_all/  \
 -r /genome/mm10.fa \
--o /data/alignment_qc_chrX
+-o /data/alignment_qc_all
 ```
 * bead filtration  
 The output of the Alignments Tool is used as the input to Bead Filtration. lf a different alignment method isused, a directory containing a position-sorted, indexed .bam file with bead barcodes annotated as XB:Z can be substituted.  
@@ -194,7 +199,7 @@ The output of the Alignments Tool is used as the input to Bead Filtration. lf a 
 echo "<=== 7.bead filtration ===>"
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 bioraddbg/atac-seq-filter-beads \
--i /data/alignment_chrX/ \
+-i /data/alignments_all/  \
 -o /data/bead_filtration/ \
 -r mm10
 ```
