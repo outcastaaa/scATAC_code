@@ -27,6 +27,8 @@ bap2 --help
 FASTQ debarcoding, read trimming, alignment, bead fltration, bead deconvolution, cell fltration and peak calling
 
 ```bash
+sudo service docker start
+
 # sequence
 
 echo "<=== downloading sequence ===>"
@@ -169,11 +171,10 @@ bowtie2  -p 7 -x  $bowtie2_index --very-sensitive -X 2000 -1  1.fq.gz -2 2.fq.gz
   -S $align_dir/sample.sam 
 
 
-
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 -v /mnt/d/scATAC/sci_reports2022/genome/mm10/:/genome/ \
 bioraddbg/atac-seq-bwa \
--i /data/debarcoded_reads \
+-i /data/trimmed_reads \
 -o /data/alignments_all/ \
 -r /genome/bwa_all/
 ```
@@ -194,14 +195,89 @@ The output of the Alignments Tool is used as the input to Bead Filtration. lf a 
 
 ```bash
 # bead filtration 
+docker run --rm -it -v /mnt/d/scATAC/sci_reports2022/genome/:/genome/ \
+--entrypoint "/bin/bash" \
+bioraddbg/atac-seq-filter-beads
 
-# 加了chrX
+docker run -it \
+	-v /mnt/d/scATAC/sci_reports2022/sequence/:/data/  \
+	--entrypoint "/bin/bash" \
+	bioraddbg/atac-seq-filter-beads
+# 加了chrX,Y,M
 echo "<=== 7.bead filtration ===>"
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 bioraddbg/atac-seq-filter-beads \
 -i /data/alignments_all/  \
 -o /data/bead_filtration/ \
 -r mm10
+
+# 因为一直出错，因此该步已经生成了一部份文件，剩下文件单行代码生成
+# 作者源代码储存在/mnt/d/scATAC/sci_reports2022中
+
+Rscript /mnt/d/scATAC/sci_reports2022/callBeadKnee.R -o /mnt/d/scATAC/sci_reports2022/sequence/bead_filtration/whitelist/ -bt NULL -ft NULL /mnt/d/scATAC/sci_reports2022/sequence/bead_filtration/whitelist/alignments.possorted.tagged.filtered.barcodequants.csv
+
+cat "$output_dir"/whitelist/aboveKneeBarcodes.csv | cut -d, -f1 | tail -n +2 - > "$output_dir"/whitelist/bap_bead_whitelist.csv
+
+
+
+mkdir -p "$output_dir"/bap_out/.internal/samples/
+mkdir -p "$output_dir"/bap_out/
+mkdir -p "$output_dir"/bap_out/final/
+mkdir -p "$output_dir"/bap_out/temp/
+mkdir -p "$output_dir"/bap_out/temp/filt_split/
+mkdir -p "$output_dir"/bap_out/logs/
+mkdir -p "$output_dir"/bap_out/temp/frag_overlap/
+mkdir -p "$output_dir"/bap_out/temp/drop_barcode/
+mkdir -p "$output_dir"/bap_out/knee/
+
+python /bap/bap/bin/python/10_quantBarcode_Filt.py -i /$bamFile --name $Name --output "$output_dir"/bap_out/temp/filt_split \
+ --barcode-tag XB --min-fragments 1 --bedtools-genome $bedGenome --ncores $(nproc) --mapq 30 --barcode-whitelist "$output_dir"/whitelist/bap_bead_whitelist.csv
+
+#compute NC per read; can be RAM intensive so using semaphore
+inbams=$(ls "$output_dir"/bap_out/temp/filt_split | grep raw.bam)
+for bam in $inbams
+do
+        sem --bg -j 10 /usr/bin/Rscript /bap/bap/bin/R/11a_computeNCperRead.R "$output_dir"/bap_out/temp/filt_split/$bam XB
+done
+sem --wait
+
+#not ram intensive, can run in embarrassingly parallel fashion
+for bam in $inbams
+do
+        outbam=$(basename $bam .raw.bam).bam
+        outtsv=$(basename $bam .bam)_ncRead.tsv
+        python /bap/bap/bin/python/11b_annoFiltNC.py --input "$output_dir"/bap_out/temp/filt_split/$bam --output "$output_dir"/bap_out/temp/filt_split/$outbam \
+        --nc-filt 6 --dict-file "$output_dir"/bap_out/temp/filt_split/$outtsv --bead-barcode XB &
+done
+wait
+
+#compute fragment overlaps; can be RAM intensive so using semaphore
+bams=$(find "$output_dir"/bap_out/temp/filt_split/ | grep .bam | grep -v raw)
+for file in $bams
+do
+        sem --bg -j 10 /usr/bin/Rscript /bap/bap/bin/R/12_fragOverlapMetricsChr.R $file XB "$output_dir"/bap_out/final/$Name.barcodequants.csv $blacklistFile
+done
+sem --wait
+
+#get implicated barcode pairs
+/usr/bin/Rscript /getImplicatedBarcodes.R "$output_dir"/bap_out/temp/frag_overlap/ "$output_dir"/bap_out/final/$Name.barcodequants.csv "$output_dir"/bap_out/final/$Name.implicatedBarcodes.csv "$output_dir"/whitelist/aboveKneeBarcodes.csv
+
+mkdir -p "$output_dir"/bap_out/final/jaccard
+
+#call knee
+zcat "$output_dir"/bap_out/final/$Name.implicatedBarcodes.csv | cut -d, -f1,6 | tail -n +2 - > "$output_dir"/bap_out/final/$Name.temp.implicatedBarcodes.csv
+
+#use kneecallr to find threshold
+/usr/bin/Rscript /callJaccardKnee.R "$output_dir"/bap_out/final/$Name.temp.implicatedBarcodes.csv "$output_dir"/bap_out/final/jaccard
+rm "$output_dir"/bap_out/final/$Name.temp.implicatedBarcodes.csv
+
+#move around outputs
+cp -r "$output_dir"/bap_out/final/jaccard/ "$output_dir"/jaccard/
+rm -r "$output_dir"/bap_out
+
+if [[ -f "/imageInfo.txt" ]]; then
+        cp /imageInfo.txt "$output_dir"/.filter-beads-version.txt
+fi
 ```
 
 * At a high level, this Tool takes the bead barcodes that were deemed to contain DNA fragments from cells and
@@ -214,7 +290,7 @@ merges bead barcodes that “see the same cell to a droplet barcode.
 echo "<=== 8.bead deconvolution ===>"
 docker run --rm -v /mnt/d/scATAC/sci_reports2022/sequence/:/data/ \
 bioraddbg/atac-seq-deconvolute \
--i /data/alignment_chrX/ \
+-i /data/alignments_all/ \
 -f /data/bead_filtration/ \
 -r mm10 \
 -o /data/deconvoluted_data/ 
