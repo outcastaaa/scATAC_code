@@ -275,7 +275,20 @@ mkdir -p /data/bead_filtration/bap_out/temp/drop_barcode/
 mkdir -p /data/bead_filtration/bap_out/knee/
 
 python /bap/bap/bin/python/10_quantBarcode_Filt.py -i /data/alignments_all/alignments.possorted.tagged.bam --name alignments.possorted.tagged --output /data/bead_filtration/bap_out/temp/filt_split \
- --barcode-tag XB --min-fragments 1 --bedtools-genome /bap/bap/anno/bedtools/chrom_mm10.sizes --ncores 6 --mapq 30 --barcode-whitelist /data/bead_filtration/whitelist/bap_bead_whitelist.csv
+ --barcode-tag XB --min-fragments 1 --bedtools-genome /bap/bap/anno/bedtools/chrom_mm10.sizes --ncores 8 --mapq 30 --barcode-whitelist /data/bead_filtration/whitelist/bap_bead_whitelist.csv
+
+# 在本机跑试试，在docker太慢了
+python /mnt/d/scATAC/sci_reports2022/10_quantBarcode_Filt.py -i /mnt/d/scATAC/sci_reports2022/sequence/alignments_all/alignments.possorted.tagged.bam --name alignments.possorted.tagged --output /mnt/d/scATAC/sci_reports2022/sequence/bead_filtration/bap_out/temp/filt_split \
+ --barcode-tag XB --min-fragments 1 --bedtools-genome /mnt/d/scATAC/sci_reports2022/chrom_mm10.sizes --ncores 6 --mapq 30 --barcode-whitelist /mnt/d/scATAC/sci_reports2022/sequence/bead_filtration/whitelist/bap_bead_whitelist.csv
+
+# 在超算跑,python的module不全
+rsync -av /mnt/d/scATAC/sci_reports2022/ wangq@202.119.37.251:/share/home/wangq/xuruizhi/scATAC/sci_reports2022/
+
+bsub -q mpi -n 24 -J 10_quantBarcode_Filt -o ~/xuruizhi/scATAC/sci_reports2022/sequence/bead_filtration/ \
+" python ~/xuruizhi/scATAC/sci_reports2022/10_quantBarcode_Filt.py -i ~/xuruizhi/scATAC/sci_reports2022/sequence/alignments_all/alignments.possorted.tagged.bam --name alignments.possorted.tagged --output ~/xuruizhi/scATAC/sci_reports2022/sequence/bead_filtration/bap_out/temp/filt_split \
+ --barcode-tag XB --min-fragments 1 --bedtools-genome ~/xuruizhi/scATAC/sci_reports2022/chrom_mm10.sizes --ncores 1 --mapq 30 --barcode-whitelist ~/xuruizhi/scATAC/sci_reports2022/sequence/bead_filtration/whitelist/bap_bead_whitelist.csv"
+
+
 
 #compute NC per read; can be RAM intensive so using semaphore
 inbams=$(ls /data/bead_filtration/bap_out/temp/filt_split | grep raw.bam)
