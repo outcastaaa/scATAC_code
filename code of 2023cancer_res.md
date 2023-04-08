@@ -5,11 +5,10 @@
 # 复现cancer_res2023中图片  
 # [文章](https://pubmed.ncbi.nlm.nih.gov/36607615/)
 # 数据：[GSE207493](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE207493) 因为该文章数据为bam文件，接下来使用nature immu的数据
+# 数据：[GSE199565](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE199565)   
 
-# 
 
-
-* 综述： 透明细胞肾细胞癌（ccRCC）是一种具有潜在高水平肿瘤异质性和遗传易感性的疾病。尽管许多研究对ccRCC进行了全面的分子表征，但DNA调控机制仍然未知，特别是在单细胞水平上。对19个ccRCC样品进行了单细胞RNA测序（scRNA-seq）和使用测序的转座酶可接近染色质的单细胞测定（scATAC-seq）。共捕获了102，723个高质量单细胞转录组信息，61，693个高质量细胞核和190，916个独特峰。我们使用全外显子组测序来了解个体之间的异质性，在体外验证长链非编码RNA（lncRNA）的功能，并通过蛋白质质谱鉴定蛋白质相互作用。构建了ccRCC的单细胞转录组和染色质可及性图谱。我们在ccRCC中发现了不同肿瘤细胞亚型的基因表达特征，并预测了它们对靶向和常规药物的敏感性。有趣的是，我们发现两种lncRNA（RP11-661C8.2和CTB-164N12.1）促进了ccRCC的侵袭和迁移，并通过体外实验进行了验证。综上所述，本研究证明了ccRCC的综合基因表达和DNA调控信息，发现并验证了促进肿瘤细胞侵袭和迁移的lncRNA，将为ccRCC的治疗提供新的见解。  
+ 
 
 
 * 测序：DNA libraries were sequenced by NovaSeq 6000 (Illumina). Consistent with previous studies, we followed the 250 paired-end sequencing scheme: 50 bp read 1N, 8 bp i7 index, 16 bp i5 index, and 50 bp read 2N.  
@@ -29,6 +28,21 @@ cellranger-atac sitecheck > sitecheck.txt
 cellranger-atac upload xuruizhi30454X@163.com sitecheck.txt
 cellranger-atac testrun
 ```
+
+## 在超算跑
+* 将软件及下载好的数据传输到超算
+```bash
+rsync -av /mnt/d/scATAC/cancer_res2023/ \
+wangq@202.119.37.251:/share/home/wangq/xuruizhi/scATAC/cancer_res2023
+```
+* 超算计算节点配置
+
+型号：Flex X240M5   
+2 颗 Intel E5-2680v3 CPU（2.5Ghz 12 核心）   
+128GB 内存   
+1 块 120GB SSD 盘   
+1 个千兆以太网网口   
+1 个 56Gb Infiniband 网口  
 
 ## 前处理 
 [参考  CellRanger ATAC](https://support.10xgenomics.com/single-cell-atac/software/pipelines/latest/what-is-cell-ranger-atac)      
@@ -54,73 +68,54 @@ $ cellranger-atac mkfastq --id=tiny-bcl \
                      --run=/path/to/tiny_bcl \
                      --samplesheet=cellranger-atac-tiny-bcl-samplesheet-1.0.0.csv
 ```
-2. 下载测序数据  
+2. 下载测序及基因组数据    
+
+下载`P14 CD8 T cells from LCMV Armstrong infection 15 days post infection`,`P14 CD8 T cells from LCMV Armstrong infection 30 days post infection`两组ATAC-seq及RNA-seq数据。SRR分别为 SRR18505563，SRR18505564，SRR18505387，SRR18505388.  
+
+
+![data](./pictures/data_choose.png)  
 
 ```bash
 # sequence
-
 echo "<=== downloading sequence ===>"
-prefetch SRR19987211 SRR19987212 SRR19987213 SRR19987214 #212+214是ATAC-seq
+mkdir -p /mnt/d/scATAC/cancer_res2023/sequence
+mkdir -p /mnt/d/scATAC/cancer_res2023/sequence/ATAC
+mkdir -p /mnt/d/scATAC/cancer_res2023/sequence/RNA
 cd ~/data/sra
+prefetch SRR18505563 SRR18505564 SRR18505387 SRR18505388 #63+64是ATAC-seq
 ls -lh
 
-echo "<=== sra2fz ===>"
-# paired
-mkdir -p /mnt/d/scATAC/cancer_res2023/sequence
-cd ~/data/sra
-ls *.sra | while read id
-do
-  echo $id 
-  fastq-dump --split-3 --gzip ${id} -O /mnt/d/scATAC/cancer_res2023/sequence/
-  rm *.sra
-done
 # 将ATAC和RNA分开
-mkdir -p /mnt/d/scATAC/cancer_res2023/sequence/ATAC
-
-# 解压和以前不一样，在超算跑
-# ATAC
 cd ~/data/sra
-cp SRR19987212.sra /mnt/d/scATAC/cancer_res2023/sequence/ATAC
-cp SRR19987214.sra /mnt/d/scATAC/cancer_res2023/sequence/ATAC
-fastq-dump --gzip SRR19987212.sra -O /mnt/d/scATAC/cancer_res2023/sequence/ATAC --split-files
+cp SRR18505563.sra /mnt/d/scATAC/cancer_res2023/sequence/ATAC
+cp SRR18505564.sra /mnt/d/scATAC/cancer_res2023/sequence/ATAC
+cp SRR18505387.sra /mnt/d/scATAC/cancer_res2023/sequence/RNA
+cp SRR18505388.sra /mnt/d/scATAC/cancer_res2023/sequence/RNA
 
-
-# RNA
-mkdir -p /mnt/d/scATAC/cancer_res2023/sequence/RNA
-fastq-dump --split-3 --gzip SRR19987211.sra -O /mnt/d/scATAC/cancer_res2023/sequence/RNA
-fastq-dump --split-3 --gzip SRR19987213.sra -O /mnt/d/scATAC/cancer_res2023/sequence/RNA
-
-rsync -av /mnt/d/scATAC/cancer_res2023/ \
-wangq@202.119.37.251:/share/home/wangq/xuruizhi/scATAC/cancer_res2023
-
-# 进入超算
-cd ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC
-bsub -q mpi -n 24 -J methy2 -o ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC \
-"/share/home/wangq/bin/fastq-dump.3.0.0 -O ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC --split-files -x --include-technical SRR19987212.sra"
-/share/home/wangq/bin/fasterq-dump.3.0.0 -O /mnt/d/scATAC/cancer_res2023/sequence/ATAC --split-files -x --include-technical SRR19987212.sra
-```
-
-3. 下载基因组数据
-```bash
 # genome 
 mkdir -p /mnt/d/scATAC/cancer_res2023/genome
 cd /mnt/d/scATAC/cancer_res2023/genome
-curl -O https://cf.10xgenomics.com/supp/cell-atac/refdata-cellranger-arc-GRCh38-2020-A-2.0.0.tar.gz
-tar -zxvf refdata-cellranger-arc-GRCh38-2020-A-2.0.0.tar.gz
-rm refdata-cellranger-arc-GRCh38-2020-A-2.0.0.tar.gz
-```
+curl -O https://cf.10xgenomics.com/supp/cell-atac/refdata-cellranger-arc-mm10-2020-A-2.0.0.tar.gz
+tar -zxvf refdata-cellranger-arc-mm10-2020-A-2.0.0.tar.gz
+rm refdata-cellranger-arc-mm10-2020-A-2.0.0.tar.gz
 
-## 在超算跑
-* 将软件及下载好的数据传输到超算
-```bash
+# 传到超算
 rsync -av /mnt/d/scATAC/cancer_res2023/ \
-wangq@202.119.37.251:/share/home/wangq/xuruizhi/scATAC/cancer_res2023
+wangq@202.119.37.251:/share/home/wangq/xuruizhi/scATAC/cancer_res2023/
 ```
-* 超算计算节点配置
+3. 格式转换sra2fq
+```bash
+echo "<=== sra2fz ===>"
+# 在超算跑
+# 单个样本
+/share/home/wangq/bin/fasterq-dump.3.0.0 -O /mnt/d/scATAC/cancer_res2023/sequence/ATAC --split-files --include-technical SRR19987212.sra
+# 循环
+cd ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC
+bsub -q mpi -n 24 -J sra2fz -o ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC \
+"ls *.sra | while read id;do(/share/home/wangq/bin/fastq-dump.3.0.0 -O ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC --split-files --include-technical ${id});done"
 
-型号：Flex X240M5   
-2 颗 Intel E5-2680v3 CPU（2.5Ghz 12 核心）   
-128GB 内存   
-1 块 120GB SSD 盘   
-1 个千兆以太网网口   
-1 个 56Gb Infiniband 网口  
+# RNA暂且不做处理
+fastq-dump --split-3 --gzip SRR19987211.sra -O /mnt/d/scATAC/cancer_res2023/sequence/RNA
+fastq-dump --split-3 --gzip SRR19987213.sra -O /mnt/d/scATAC/cancer_res2023/sequence/RNA
+
+```
