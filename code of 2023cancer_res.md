@@ -108,14 +108,64 @@ wangq@202.119.37.251:/share/home/wangq/xuruizhi/scATAC/cancer_res2023/
 echo "<=== sra2fz ===>"
 # 在超算跑
 # 单个样本
-/share/home/wangq/bin/fasterq-dump.3.0.0 -O /mnt/d/scATAC/cancer_res2023/sequence/ATAC --split-files --include-technical SRR19987212.sra
-# 循环
 cd ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC
 bsub -q mpi -n 24 -J sra2fz -o ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC \
-"ls *.sra | while read id;do(/share/home/wangq/bin/fastq-dump.3.0.0 -O ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC --split-files --include-technical ${id});done"
+"/share/home/wangq/bin/fastq-dump.3.0.0 -O ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC --split-files --gzip SRR18505563.sra" # Job <8289637>
+bsub -q mpi -n 24 -J sra2fz -o ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC \
+"/share/home/wangq/bin/fastq-dump.3.0.0 -O ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC --split-files --gzip SRR18505564.sra" # Job <8289674>
+
 
 # RNA暂且不做处理
 fastq-dump --split-3 --gzip SRR19987211.sra -O /mnt/d/scATAC/cancer_res2023/sequence/RNA
 fastq-dump --split-3 --gzip SRR19987213.sra -O /mnt/d/scATAC/cancer_res2023/sequence/RNA
+```
+4. 改成符合cell ranger的名字  
 
+cellranger的输入文件格式是fq格式，并且文件的命名也是有要求，文件命名格式如下：  
+**[Sample Name]**S1_L00**[Lane Number]****[Read Type]**_001.fastq.gz  
+* I1: Dual index i7 read (optional)
+* R1: Read 1
+* R2: Dual index i5 read
+* R3: Read 2  
+重新创建一个目录并且用软连接将原始文件链接到新的目录中。  
+
+```bash
+cd  ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC
+mkdir -p ~/xuruizhi/scATAC/cancer_res2023/sequence/namedATAC
+# 通过查阅长度判断分别为什么文件
+$ gzip -dc SRR18505563_1.fastq.gz | head -n 6
+# @SRR18505563.1 A00303:76:HHWJ7DMXX:1:1101:1127:1000 length=49
+$ gzip -dc SRR18505563_2.fastq.gz | head -n 6
+# @SRR18505563.1 A00303:76:HHWJ7DMXX:1:1101:1127:1000 length=16 该文件为i5 index
+$ gzip -dc SRR18505563_3.fastq.gz | head -n 6
+# @SRR18505563.1 A00303:76:HHWJ7DMXX:1:1101:1127:1000 length=49
+
+# 通过软连接移入新文件夹并改名
+ln -s ./SRR18505563_1.fastq.gz ../namedATAC/Arm15_S1_L001_R1_001.fastq.gz
+ln -s ./SRR18505563_2.fastq.gz ../namedATAC/Arm15_S1_L001_R2_001.fastq.gz
+ln -s ./SRR18505563_3.fastq.gz ../namedATAC/Arm15_S1_L001_R3_001.fastq.gz
+
+ln -s ./SRR18505564_1.fastq.gz ../namedATAC/Arm30_S1_L001_R1_001.fastq.gz
+ln -s ./SRR18505564_2.fastq.gz ../namedATAC/Arm30_S1_L001_R2_001.fastq.gz
+ln -s ./SRR18505564_3.fastq.gz ../namedATAC/Arm30_S1_L001_R3_001.fastq.gz
+```
+5. cellranger count
+```bash
+mkdir ~/xuruizhi/scATAC/cancer_res2023/cr-count
+cd ~/xuruizhi/scATAC/cancer_res2023/cr-count
+# 写脚本
+$ cat >run-cellranger_mm10.sh <<EOF
+bin = ~/xuruizhi/cellranger-atac-2.1.0/cellranger-atac
+db = ~/xuruizhi/scATAC/cancer_res2023/genome/refdata-cellranger-arc-mm10-2020-A-2.0.0
+fq_dir = ~/xuruizhi/scATAC/cancer_res2023/sequence/namedATAC
+ls $bin; ls $db
+
+$bin count --id $1 --reference $db --fastqs $fq_dir --sample $1
+
+
+bsub -q mpi -n 24 -J cr-count -o ~/xuruizhi/scATAC/cancer_res2023/cr-count \
+"bash run-cellranger_mm10.sh Arm15 1>log_Arm15.txt 2>&1"
+
+bsub -q mpi -n 24 -J cr-count -o ~/xuruizhi/scATAC/cancer_res2023/cr-count \
+"bash run-cellranger_mm10.sh Arm30 1>log_Arm30.txt 2>&1"
 ```
