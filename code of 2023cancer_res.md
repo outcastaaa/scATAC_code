@@ -126,8 +126,8 @@ cellranger的输入文件格式是fq格式，并且文件的命名也是有要�
 * I1: Dual index i7 read (optional)
 * R1: Read 1
 * R2: Dual index i5 read
-* R3: Read 2  
-重新创建一个目录并且用软连接将原始文件链接到新的目录中。  
+* R3: Read 2    
+[详细介绍](https://mp.weixin.qq.com/s?__biz=MzI1Njk4ODE0MQ==&mid=2247484179&idx=1&sn=fe84f5243a6021fe6afea128e3ac273a&chksm=ea1f0591dd688c8780d4e68a1d5838a5fca79b19f13587751112c57eae8d605d79680a787c00&scene=21#wechat_redirect),重新创建一个目录并且用软连接将原始文件链接到新的目录中。  
 
 ```bash
 cd  ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC
@@ -148,7 +148,13 @@ ln -s ./SRR18505563_3.fastq.gz ../namedATAC/Arm15_S1_L001_R3_001.fastq.gz
 ln -s ./SRR18505564_1.fastq.gz ../namedATAC/Arm30_S1_L001_R1_001.fastq.gz
 ln -s ./SRR18505564_2.fastq.gz ../namedATAC/Arm30_S1_L001_R2_001.fastq.gz
 ln -s ./SRR18505564_3.fastq.gz ../namedATAC/Arm30_S1_L001_R3_001.fastq.gz
+
+# 批量修改
+cat SRR_.txt | while read i ;do 
+(mv ${i}_1*.gz ${i}_S1_L001_R1_001.fastq.gz;mv ${i}_2*.gz ${i}_S1_L001_R2_001.fastq.gz;mv ${i}_3*.gz ${i}_S1_L001_R3_001.fastq.gz);done
 ```
+可选：[fastqc 查看质量](https://mp.weixin.qq.com/s?__biz=MzI1Njk4ODE0MQ==&mid=2247484206&idx=1&sn=edeebbdd092f79361aee87e9ce086d80&chksm=ea1f05acdd688cba4bb00b65e362db843f9867e40421bb334fc13be996c24afb2211a23adbb5&cur_album_id=2757379787522048003&scene=189#wechat_redirect)  
+
 5. cellranger count
 ```bash
 mkdir ~/xuruizhi/scATAC/cancer_res2023/cr-count
@@ -160,8 +166,9 @@ db = ~/xuruizhi/scATAC/cancer_res2023/genome/refdata-cellranger-arc-mm10-2020-A-
 fq_dir = ~/xuruizhi/scATAC/cancer_res2023/sequence/namedATAC
 ls $bin; ls $db
 
-$bin count --id $1 --reference $db --fastqs $fq_dir --sample $1
-
+$bin count --id $1 --reference $db \
+--fastqs $fq_dir --sample $1
+EOF
 
 bsub -q mpi -n 24 -J cr-count -o ~/xuruizhi/scATAC/cancer_res2023/cr-count \
 "bash run-cellranger_mm10.sh Arm15 1>log_Arm15.txt 2>&1"
@@ -169,3 +176,7 @@ bsub -q mpi -n 24 -J cr-count -o ~/xuruizhi/scATAC/cancer_res2023/cr-count \
 bsub -q mpi -n 24 -J cr-count -o ~/xuruizhi/scATAC/cancer_res2023/cr-count \
 "bash run-cellranger_mm10.sh Arm30 1>log_Arm30.txt 2>&1"
 ```
+* output  
+![output](./pictures/cr_count_output.png)  
+
+Once cellranger-atac count has successfully completed, you can browse the resulting `[summary HTML file](https://support.10xgenomics.com/single-cell-atac/software/pipelines/latest/output/summary)` in any supported web browser, open the `.cloupe` file in `[Loupe Browser](https://support.10xgenomics.com/single-cell-atac/software/visualization/latest/cellranger-atac)`, or refer to the Understanding Output section to explore the data by hand.
