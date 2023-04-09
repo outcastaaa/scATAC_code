@@ -129,7 +129,7 @@ cellranger的输入文件格式是fq格式，并且文件的命名也是有要�
 * R1: Read 1
 * R2: Dual index i5 read
 * R3: Read 2    
-[详细介绍](https://mp.weixin.qq.com/s?__biz=MzI1Njk4ODE0MQ==&mid=2247484179&idx=1&sn=fe84f5243a6021fe6afea128e3ac273a&chksm=ea1f0591dd688c8780d4e68a1d5838a5fca79b19f13587751112c57eae8d605d79680a787c00&scene=21#wechat_redirect),重新创建一个目录并且用软连接将原始文件链接到新的目录中。  
+[详细介绍](https://mp.weixin.qq.com/s?__biz=MzI1Njk4ODE0MQ==&mid=2247484179&idx=1&sn=fe84f5243a6021fe6afea128e3ac273a&chksm=ea1f0591dd688c8780d4e68a1d5838a5fca79b19f13587751112c57eae8d605d79680a787c00&scene=21#wechat_redirect),[各种文件格式命名方法](https://mp.weixin.qq.com/s?__biz=MzI1Njk4ODE0MQ==&mid=2247484355&idx=1&sn=7860fe0c46073a55d2d3700822c3103b&chksm=ea1f0541dd688c57245c175fb1869158993f83fcdd9693c5d6c98de890ff5c1969c355f5c330&cur_album_id=2757379787522048003&scene=189#wechat_redirect)重新创建一个目录并且用软连接将原始文件链接到新的目录中。  
 
 ```bash
 cd  ~/xuruizhi/scATAC/cancer_res2023/sequence/ATAC
@@ -165,7 +165,7 @@ bsub -q mpi -n 24 -J QC -o ~/xuruizhi/scATAC/cancer_res2023/QC \
 ```
 5. cellranger count  
 
-* 利用mkfastq生成的fq文件，进行比对、过滤、UMI计数。利用细胞的barcode生成gene-barcode矩阵，然后进行样本分群、基因表达分析。  
+* 利用mkfastq生成的fq文件，进行比对、过滤、UMI计数。利用细胞的barcode生成gene-barcode矩阵，后续进行样本分群、基因表达分析。  
 
 
 ```bash
@@ -195,4 +195,92 @@ bsub -q mpi -n 24 -J cr-count -o ~/xuruizhi/scATAC/cancer_res2023/cr-count \
 * output  
 ![output](./pictures/cr_count_output.png)  
 
-Once cellranger-atac count has successfully completed, you can browse the resulting `[summary HTML file](https://support.10xgenomics.com/single-cell-atac/software/pipelines/latest/output/summary)` in any supported web browser, open the `.cloupe` file in `[Loupe Browser](https://support.10xgenomics.com/single-cell-atac/software/visualization/latest/cellranger-atac)`, or refer to the Understanding Output section to explore the data by hand.
+Once cellranger-atac count has successfully completed, you can browse the resulting `[summary HTML file](https://support.10xgenomics.com/single-cell-atac/software/pipelines/latest/output/summary)` in any supported web browser, open the `.cloupe` file in `[Loupe Browser](https://support.10xgenomics.com/single-cell-atac/software/visualization/latest/cellranger-atac)`, or refer to the Understanding Output section to explore the data by hand.    
+
+
+* 结果解读（参考生信技能树Jimmy的帖子）：
+```
+web_summary.html：必看，官方说明 summary HTML file ，包括许多QC指标，预估细胞数，比对率等；
+
+metrics_summary.csv：CSV格式数据摘要，可以不看；
+
+possorted_genome_bam.bam：比对文件，用于可视化比对的reads和重新创建FASTQ文件，可以不看；
+
+possorted_genome_bam.bam.bai：索引文件；
+
+filtered_gene_bc_matrices：是重要的一个目录，下面又包含了 barcodes.tsv.gz、features.tsv.gz、matrix.mtx.gz，是下游Seurat、Scater、Monocle等分析的输入文件，是经过Cell Ranger过滤后构建矩阵所需要的所有文件；
+
+filtered_feature_bc_matrix.h5：过滤掉的barcode信息HDF5 format，可以不看；
+
+raw_feature_bc_matrix：原始barcode信息，未过滤的可以用于构建矩阵的文件，可以不看；
+
+raw_feature_bc_matrix.h5：原始barcode信息HDF5 format，可以不看；
+
+analysis：数据分析目录，下面又包含聚类clustering（有graph-based & k-means）、差异分析diffexp、主成分线性降维分析pca、非线性降维tsne，因为我们自己会走Seurat流程，所以不用看；
+
+molecule_info.h5：可用于整合多样本，使用cellranger aggr函数；
+
+cloupe.cloupe：官方可视化工具Loupe Cell Browser 输入文件，无代码分析的情况下使用，会代码的同学通常用不到。
+```
+6. cellranger aggr   
+
+当处理多个生物学样本或者一个样本存在多个重复/文库时，最好的操作就是先分别对每个文库进行单独的count定量，然后将定量结果利用aggr组合起来。  
+
+本文没有技术重复和生物学重复。如果有，可以参照[该方法]()进行组合，或参照其他文章中分别call peak，对peak进行筛选。  
+
+```bash
+#  得到count结果
+$ cellranger count --id=LV123 ...
+... wait for pipeline to finish ...
+$ cellranger count --id=LB456 ...
+... wait for pipeline to finish ...
+$ cellranger count --id=LP789 ...
+... wait for pipeline to finish ...
+
+# 构建Aggregation CSV
+# AGG123_libraries.csv
+library_id,molecule_h5
+LV123,/opt/runs/LV123/outs/molecule_info.h5
+LB456,/opt/runs/LB456/outs/molecule_info.h5
+LP789,/opt/runs/LP789/outs/molecule_info.h5
+# 其中
+# molecule_h5：文件molecule_info.h5 file的路径
+
+# 运行aggr
+cellranger aggr --id=AGG123 \
+                 --csv=AGG123_libraries.csv \
+                 --normalize=mapped
+# 结果输出到AGG123这个目录中
+```
+上游流程就到此为止啦，接下来就是读取每个样品的表达量矩阵去R语言里面跑seurat流程，每个样品都是3个文件组成的表达量矩阵：  
+7. 细胞聚类  
+
+细胞聚类看前后比例变化  
+
+```r
+# 先安装好需要的软件
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("Signac")
+BiocManager::install("Seurat")
+BiocManager::install("GenomeInfoDb")
+BiocManager::install("ggplot2")
+BiocManager::install("patchwork")
+BiocManager::install("GenomicRanges")
+BiocManager::install("future")
+BiocManager::install("harmony")
+
+
+
+library(Signac)
+library(Seurat)
+library(GenomeInfoDb)
+# library(EnsDb.Hsapiens.v75)
+library(ggplot2)
+library(patchwork)
+set.seed(1234)
+library(GenomicRanges)
+library(future)
+library(harmony)
+
+```
