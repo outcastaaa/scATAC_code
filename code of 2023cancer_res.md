@@ -13,6 +13,7 @@
 
 * 测序：DNA libraries were sequenced by NovaSeq 6000 (Illumina). Consistent with previous studies, we followed the 250 paired-end sequencing scheme: 50 bp read 1N, 8 bp i7 index, 16 bp i5 index, and 50 bp read 2N.  
 
+* [对于sample、flowcell区分](https://mp.weixin.qq.com/s?__biz=MzI1Njk4ODE0MQ==&mid=2247484206&idx=1&sn=edeebbdd092f79361aee87e9ce086d80&chksm=ea1f05acdd688cba4bb00b65e362db843f9867e40421bb334fc13be996c24afb2211a23adbb5&cur_album_id=2757379787522048003&scene=189#wechat_redirect)
 
 ## 软件下载
 ```bash
@@ -54,7 +55,7 @@ For example, if your experimental design involves `two samples`, you will have t
 
 1. bcl2fastq  
 
-* 若已经获得了fastq文件，直接进行下一步即可  
+* cellranger mkfastq ： 它借鉴了Illumina的bcl2fastq ，可以将一个或多个lane中的混样测序样本按照index标签生成样本对应的fastq文件。若已经获得了fastq文件，直接进行下一步即可    
 
 * Preliminary sequencing files (.bcl) were converted to FASTQ files by CellRanger ATAC (version 1.2.0, https://support.10xgenomics.com/single-cell-atac/software/pipelines/
 latest/ what-is-cell-ranger-atac) with the `cellranger-atac mkfastq` function.   
@@ -93,6 +94,7 @@ cp SRR18505387.sra /mnt/d/scATAC/cancer_res2023/sequence/RNA
 cp SRR18505388.sra /mnt/d/scATAC/cancer_res2023/sequence/RNA
 
 # genome 
+# 这里面包含了基因组、注释源文件，以及cell ranger自己利用mkgtf构建的注释和mkref构建的基因组
 mkdir -p /mnt/d/scATAC/cancer_res2023/genome
 cd /mnt/d/scATAC/cancer_res2023/genome
 curl -O https://cf.10xgenomics.com/supp/cell-atac/refdata-cellranger-arc-mm10-2020-A-2.0.0.tar.gz
@@ -141,40 +143,54 @@ $ gzip -dc SRR18505563_3.fastq.gz | head -n 6
 # @SRR18505563.1 A00303:76:HHWJ7DMXX:1:1101:1127:1000 length=49
 
 # 通过软连接移入新文件夹并改名
-ln -s ./SRR18505563_1.fastq.gz ../namedATAC/Arm15_S1_L001_R1_001.fastq.gz
-ln -s ./SRR18505563_2.fastq.gz ../namedATAC/Arm15_S1_L001_R2_001.fastq.gz
-ln -s ./SRR18505563_3.fastq.gz ../namedATAC/Arm15_S1_L001_R3_001.fastq.gz
-
-ln -s ./SRR18505564_1.fastq.gz ../namedATAC/Arm30_S1_L001_R1_001.fastq.gz
-ln -s ./SRR18505564_2.fastq.gz ../namedATAC/Arm30_S1_L001_R2_001.fastq.gz
-ln -s ./SRR18505564_3.fastq.gz ../namedATAC/Arm30_S1_L001_R3_001.fastq.gz
+bsub -q mpi -n 24 -J named -o ~/xuruizhi/scATAC/cancer_res2023/namedATAC \
+"cp ./SRR18505563_1.fastq.gz ../namedATAC/Arm15_S1_L001_R1_001.fastq.gz
+cp ./SRR18505563_2.fastq.gz ../namedATAC/Arm15_S1_L001_R2_001.fastq.gz
+cp ./SRR18505563_3.fastq.gz ../namedATAC/Arm15_S1_L001_R3_001.fastq.gz
+cp ./SRR18505564_1.fastq.gz ../namedATAC/Arm30_S1_L001_R1_001.fastq.gz
+cp ./SRR18505564_2.fastq.gz ../namedATAC/Arm30_S1_L001_R2_001.fastq.gz
+cp ./SRR18505564_3.fastq.gz ../namedATAC/Arm30_S1_L001_R3_001.fastq.gz"
 
 # 批量修改
 cat SRR_.txt | while read i ;do 
 (mv ${i}_1*.gz ${i}_S1_L001_R1_001.fastq.gz;mv ${i}_2*.gz ${i}_S1_L001_R2_001.fastq.gz;mv ${i}_3*.gz ${i}_S1_L001_R3_001.fastq.gz);done
 ```
 可选：[fastqc 查看质量](https://mp.weixin.qq.com/s?__biz=MzI1Njk4ODE0MQ==&mid=2247484206&idx=1&sn=edeebbdd092f79361aee87e9ce086d80&chksm=ea1f05acdd688cba4bb00b65e362db843f9867e40421bb334fc13be996c24afb2211a23adbb5&cur_album_id=2757379787522048003&scene=189#wechat_redirect)  
+```bash
+mkdir ~/xuruizhi/scATAC/cancer_res2023/QC
+cd ~/xuruizhi/scATAC/cancer_res2023/sequence/namedATAC/
+bsub -q mpi -n 24 -J QC -o ~/xuruizhi/scATAC/cancer_res2023/QC \
+"ls *.fastq.gz | while read ${id}; do(/share/home/wangq/.linuxbrew/bin/fastqc ${id} -o ~/xuruizhi/scATAC/cancer_res2023/QC);done"
+# 因为java配置没有成功
+```
+5. cellranger count  
 
-5. cellranger count
+* 利用mkfastq生成的fq文件，进行比对、过滤、UMI计数。利用细胞的barcode生成gene-barcode矩阵，然后进行样本分群、基因表达分析。  
+
+
 ```bash
 mkdir ~/xuruizhi/scATAC/cancer_res2023/cr-count
 cd ~/xuruizhi/scATAC/cancer_res2023/cr-count
 # 写脚本
 $ cat >run-cellranger_mm10.sh <<EOF
-bin = ~/xuruizhi/cellranger-atac-2.1.0/cellranger-atac
-db = ~/xuruizhi/scATAC/cancer_res2023/genome/refdata-cellranger-arc-mm10-2020-A-2.0.0
-fq_dir = ~/xuruizhi/scATAC/cancer_res2023/sequence/namedATAC
-ls $bin; ls $db
+# bin = ~/xuruizhi/cellranger-atac-2.1.0/cellranger-atac
+# db = ~/xuruizhi/scATAC/cancer_res2023/genome/refdata-cellranger-arc-mm10-2020-A-2.0.0
+# fq_dir = ~/xuruizhi/scATAC/cancer_res2023/sequence/namedATAC
 
-$bin count --id $1 --reference $db \
---fastqs $fq_dir --sample $1
+~/xuruizhi/cellranger-atac-2.1.0/cellranger-atac count --id $1 --reference ~/xuruizhi/scATAC/cancer_res2023/genome/refdata-cellranger-arc-mm10-2020-A-2.0.0 \
+--fastqs ~/xuruizhi/scATAC/cancer_res2023/sequence/namedATAC --sample $1
 EOF
 
+# 脚本执行失败，还是一个个来吧
 bsub -q mpi -n 24 -J cr-count -o ~/xuruizhi/scATAC/cancer_res2023/cr-count \
-"bash run-cellranger_mm10.sh Arm15 1>log_Arm15.txt 2>&1"
+"~/xuruizhi/cellranger-atac-2.1.0/cellranger-atac count --id Arm15 --reference ~/xuruizhi/scATAC/cancer_res2023/genome/refdata-cellranger-arc-mm10-2020-A-2.0.0 \
+--fastqs ~/xuruizhi/scATAC/cancer_res2023/sequence/namedATAC --sample Arm15 1>log_Arm15.txt 2>&1"
+# Job <8314173>
 
 bsub -q mpi -n 24 -J cr-count -o ~/xuruizhi/scATAC/cancer_res2023/cr-count \
-"bash run-cellranger_mm10.sh Arm30 1>log_Arm30.txt 2>&1"
+"~/xuruizhi/cellranger-atac-2.1.0/cellranger-atac count --id Arm30 --reference ~/xuruizhi/scATAC/cancer_res2023/genome/refdata-cellranger-arc-mm10-2020-A-2.0.0 \
+--fastqs ~/xuruizhi/scATAC/cancer_res2023/sequence/namedATAC --sample Arm30 1>log_Arm30.txt 2>&1"
+# Job <8314199>
 ```
 * output  
 ![output](./pictures/cr_count_output.png)  
