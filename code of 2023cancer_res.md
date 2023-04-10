@@ -194,39 +194,55 @@ bsub -q mpi -n 24 -J cr-count -o ~/xuruizhi/scATAC/cancer_res2023/cr-count \
 ```
 * output  
 ![output](./pictures/cr_count_output.png)  
-
+![output_arm15](./pictures/output_arm15.png)  
+![output_arm30](./pictures/output_arm30.png)  
 Once cellranger-atac count has successfully completed, you can browse the resulting `[summary HTML file](https://support.10xgenomics.com/single-cell-atac/software/pipelines/latest/output/summary)` in any supported web browser, open the `.cloupe` file in `[Loupe Browser](https://support.10xgenomics.com/single-cell-atac/software/visualization/latest/cellranger-atac)`, or refer to the Understanding Output section to explore the data by hand.    
 
 
 * 结果解读（参考生信技能树Jimmy的帖子）：
+```bash
+# 通过beyond compare将结果文件传输到本地查看、进行下游分析  
+mkdir -p /mnt/d/scATAC/cancer_res2023/cr-count/Arm15
+mkdir -p /mnt/d/scATAC/cancer_res2023/cr-count/Arm30
+rsync -av wangq@202.119.37.251:/share/home/wangq/xuruizhi/scATAC/cancer_res2023/cr-count/Arm15/ \
+/mnt/d/scATAC/cancer_res2023/cr-count/Arm15
+
+rsync -av wangq@202.119.37.251:/share/home/wangq/xuruizhi/scATAC/cancer_res2023/cr-count/Arm30/ \
+/mnt/d/scATAC/cancer_res2023/cr-count/Arm30
+
+# web_summary.html：必看，官方说明 summary HTML file ，包括许多QC指标，预估细胞数，比对率等；
+# summary.csv：CSV格式数据摘要，可以不看；
+# possorted_genome_bam.bam：比对文件，用于可视化比对的reads和重新创建FASTQ文件，可以不看；
+# possorted_genome_bam.bam.bai：索引文件；
+# filtered_gene_bc_matrices：是重要的一个目录，下面又包含了 barcodes.tsv.gz、features.tsv.gz、matrix.mtx.gz，是下游Seurat、Scater、Monocle等分析的输入文件，是经过Cell Ranger过滤后构建矩阵所需要的所有文件；
+# filtered_feature_bc_matrix.h5：过滤掉的barcode信息HDF5 format，可以不看；
+# raw_feature_bc_matrix：原始barcode信息，未过滤的可以用于构建矩阵的文件，可以不看；
+# raw_feature_bc_matrix.h5：原始barcode信息HDF5 format，可以不看；
+# analysis：数据分析目录，下面又包含聚类clustering（有graph-based & k-means）、差异分析diffexp、主成分线性降维分析pca、非线性降维tsne，因为我们自己会走Seurat流程，所以不用看；
+# molecule_info.h5：可用于整合多样本，使用cellranger aggr函数；
+# cloupe.cloupe：官方可视化工具Loupe Cell Browser 输入文件，无代码分析的情况下使用，会代码的同学通常用不到。
+```  
+
+* 文件整理：
+其中最重要的outs为 `filtered_feature_bc_matrix` 文件夹里面的内容， 以及 `web_summary.html` 这个报表.  
+```bash
+mkdir -p /mnt/d/scATAC/cancer_res2023/cr-count/html 
+cd /mnt/d/scATAC/cancer_res2023/cr-count
+ls */outs/web_summary.html |while read id;do (cp $id /mnt/d/scATAC/cancer_res2023/cr-count/html/${id%%/*}.html );done
+# 文件目录有问题
+mkdir -p /mnt/d/scATAC/cancer_res2023/cr-count/matrix 
+ls -d */outs/filtered_feature_bc_matrix |while read id;do (cp -r  $id /mnt/d/scATAC/cancer_res2023/cr-count/matrix/${id%%/*} );done
 ```
-web_summary.html：必看，官方说明 summary HTML file ，包括许多QC指标，预估细胞数，比对率等；
 
-metrics_summary.csv：CSV格式数据摘要，可以不看；
 
-possorted_genome_bam.bam：比对文件，用于可视化比对的reads和重新创建FASTQ文件，可以不看；
-
-possorted_genome_bam.bam.bai：索引文件；
-
-filtered_gene_bc_matrices：是重要的一个目录，下面又包含了 barcodes.tsv.gz、features.tsv.gz、matrix.mtx.gz，是下游Seurat、Scater、Monocle等分析的输入文件，是经过Cell Ranger过滤后构建矩阵所需要的所有文件；
-
-filtered_feature_bc_matrix.h5：过滤掉的barcode信息HDF5 format，可以不看；
-
-raw_feature_bc_matrix：原始barcode信息，未过滤的可以用于构建矩阵的文件，可以不看；
-
-raw_feature_bc_matrix.h5：原始barcode信息HDF5 format，可以不看；
-
-analysis：数据分析目录，下面又包含聚类clustering（有graph-based & k-means）、差异分析diffexp、主成分线性降维分析pca、非线性降维tsne，因为我们自己会走Seurat流程，所以不用看；
-
-molecule_info.h5：可用于整合多样本，使用cellranger aggr函数；
-
-cloupe.cloupe：官方可视化工具Loupe Cell Browser 输入文件，无代码分析的情况下使用，会代码的同学通常用不到。
-```
 6. cellranger aggr   
 
-当处理多个生物学样本或者一个样本存在多个重复/文库时，最好的操作就是先分别对每个文库进行单独的count定量，然后将定量结果利用aggr组合起来。  
+当处理多个生物学样本或者一个样本存在多个重复/文库时，最好的操作就是先分别对每个文库进行单独的count定量，然后将定量结果利用aggr组合起来。   
 
-本文没有技术重复和生物学重复。如果有，可以参照[该方法]()进行组合，或参照其他文章中分别call peak，对peak进行筛选。  
+本文没有技术重复和生物学重复。可以参照其他文章中分别call peak，对peak进行筛选。  
+
+![call_peak](./pictures/call_peak.jpg)  
+
 
 ```bash
 #  得到count结果
@@ -252,7 +268,14 @@ cellranger aggr --id=AGG123 \
                  --normalize=mapped
 # 结果输出到AGG123这个目录中
 ```
-上游流程就到此为止啦，接下来就是读取每个样品的表达量矩阵去R语言里面跑seurat流程，每个样品都是3个文件组成的表达量矩阵：  
+上游流程就到此为止啦，接下来就是读取每个样品的表达量矩阵去R语言里面跑seurat流程，每个样品都是3个文件组成的表达量矩阵.  
+
+7. [可选！] Loupe Cell Browser可视化    
+
+
+
+
+
 7. 细胞聚类  
 
 细胞聚类看前后比例变化  
@@ -278,7 +301,7 @@ library(GenomeInfoDb)
 # library(EnsDb.Hsapiens.v75)
 library(ggplot2)
 library(patchwork)
-set.seed(1234)
+# set.seed(1234)
 library(GenomicRanges)
 library(future)
 library(harmony)
