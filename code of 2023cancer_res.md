@@ -297,15 +297,17 @@ if (!require("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 BiocManager::install("Signac")
 BiocManager::install("Seurat")
-BiocManager::install("GenomeInfoDb")
-BiocManager::install("ggplot2")
-BiocManager::install("patchwork")
-BiocManager::install("GenomicRanges")
-BiocManager::install("future")
-BiocManager::install("harmony")
+BiocManager::install("GenomeInfoDb",force = TRUE)
+BiocManager::install("ggplot2",force = TRUE)
+BiocManager::install("patchwork",force = TRUE)
+BiocManager::install("GenomicRanges",force = TRUE)
+BiocManager::install("future",force = TRUE)
+BiocManager::install("harmony",force = TRUE)
 BiocManager::install(c('BSgenome.Mmusculus.UCSC.mm10', 'EnsDb.Mmusculus.v79'))
 BiocManager::install("BSgenome.Mmusculus.UCSC.mm10",force = TRUE)
-BiocManager::install("Cairo")
+BiocManager::install("Cairo",force = TRUE)
+
+
 
 # 安装ArchR,推荐在Linux使用
 # 方法1，多试几遍
@@ -314,9 +316,20 @@ if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocMana
 devtools::install_github("GreenleafLab/ArchR", ref="master", repos = BiocManager::repositories())
 # 方法2
 git clone https://github.com/GreenleafLab/ArchR.git
-BiocManager::install(c("nabor","motifmatchr","chromVAR","ComplexHeatmap"))
+BiocManager::install(c("nabor","motifmatchr","chromVAR","ComplexHeatmap"),force = TRUE)
 install.packages("./ArchR", repo=NULL)
 ArchR::installExtraPackages()
+
+
+# 安装一些依赖项
+cd /mnt/d/biosoft
+wget https://cran.r-project.org/src/contrib/XML_3.99-0.14.tar.gz
+tar -zxvf XML_3.99-0.14.tar.gz
+cd MACS2-2.2.7.1
+
+
+BiocManager::install("TFBSTools",force = TRUE)
+install.packages("BSgenome.Mmusculus.UCSC.mm10")
 
 
 library(Signac)
@@ -329,6 +342,8 @@ library(patchwork)
 library(GenomicRanges)
 library(future)
 library(harmony)
+BiocManager::install("Rcpp",force = TRUE)
+library(Rcpp)
 library(ArchR)
 library(Cairo)
 
@@ -533,7 +548,7 @@ Arm15_30.proj2
 Arm15_30.proj2_1 <- addIterativeLSI(
     ArchRProj = Arm15_30.proj2,
     useMatrix = "TileMatrix", 
-    name = "IterativeLSI", 
+    name = "IterativeLSI1", 
     iterations = 2, 
     clusterParams = list( #See Seurat::FindClusters
         resolution = c(0.2), 
@@ -560,10 +575,11 @@ Arm15_30.proj2_2 <- addIterativeLSI(
     dimsToUse = 1:30
 )
 
+
 Arm15_30.proj2_3 <- addIterativeLSI(
     ArchRProj = Arm15_30.proj2,
     useMatrix = "TileMatrix", 
-    name = "IterativeLSI", 
+    name = "IterativeLSI3", 
     iterations = 3, 
     clusterParams = list( #See Seurat::FindClusters
         resolution = c(1.5), 
@@ -576,16 +592,101 @@ Arm15_30.proj2_3 <- addIterativeLSI(
     force = FALSE
 )
 
+Arm15_30.proj2_4 <- addIterativeLSI(
+    ArchRProj = Arm15_30.proj2,
+    useMatrix = "TileMatrix", 
+    name = "IterativeLSI", 
+    iterations = 4, 
+    clusterParams = list( #See Seurat::FindClusters
+        resolution = c(1.8), 
+        sampleCells = 10000, 
+        n.start = 10,
+        algorithm=2
+    ), 
+    varFeatures = 100000, 
+    dimsToUse = 1:30,
+    force = FALSE
+)
+
+
 # 近似LSI
 # 近似LSI通过修改ArchR的addIterativeLSI()函数的sampleCellsFinal和projectCellsPre参数来实现.samplesCellsFinal决定了路标细胞的数目，
 # projectCellsPre告诉ArchR使用路标细胞对其余细胞进行投影。
 
-
+# 总体比较后发现，还是Arm15_30.proj2_3迭代效果最好
+Arm15_30.proj2 <- addIterativeLSI(
+    ArchRProj = Arm15_30.proj2,
+    useMatrix = "TileMatrix", 
+    name = "IterativeLSI", 
+    iterations = 3, 
+    clusterParams = list( #See Seurat::FindClusters
+        resolution = c(1.5), 
+        sampleCells = 10000, 
+        n.start = 10,
+        algorithm=2
+    ), 
+    varFeatures = 100000, 
+    dimsToUse = 1:30,
+    force = TRUE 
+)
 # 使用Harmony矫正批次效应
+?addHarmony
+Arm15_30.proj2 <- addHarmony(
+    ArchRProj = Arm15_30.proj2,
+    reducedDims = "IterativeLSI",
+    name = "Harmony",
+    groupBy = "Sample"
+)
+Arm15_30.proj2@reducedDims$Harmony
+
+# 使用Seurat的FindClusters()函数进行聚类
+Arm15_30.proj2 <- addClusters(
+    input = Arm15_30.proj2,
+    reducedDims = "IterativeLSI",
+    method = "Seurat",
+    name = "Clusters",
+    resolution = 0.8
+)
+head(Arm15_30.proj2$Clusters)
+# 统计下每个cluster的细胞数
+table(Arm15_30.proj2$Clusters)
+# C1  C10  C11  C12  C13  C14   C2   C3   C4   C5   C6   C7   C8   C9 
+# 1261 2808 1681  902 1274  862  297   99 1496 1317 1864  793 1442  735  
 
 
-Merged.proj2 <- addUMAP(
-    ArchRProj = Merged.proj2, 
+# 为了更好了解样本在cluster的分布，使用confusionMatrix()函数通过每个样本创建一个聚类混合矩阵(cluster confusion matrix)
+cM <- confusionMatrix(paste0(Arm15_30.proj2$Clusters), paste0(Arm15_30.proj2$Sample))
+cM
+# 14 x 2 sparse Matrix of class "dgCMatrix"
+#     Arm15 Arm30
+# C10  2755    53
+# C9    680    55
+# C6   1825    39
+# C7    751    42
+# C12   731   171
+# C5     55  1262
+# C8     47  1395
+# C3     72    27
+# C11    62  1619
+# C4     42  1454
+# C1   1241    20
+# C2    145   152
+# C13   706   568
+# C14   348   514
+
+library(pheatmap)
+cM <- cM / Matrix::rowSums(cM)
+p_heatmap <- pheatmap::pheatmap(
+    mat = as.matrix(cM), 
+    color = paletteContinuous("whiteBlue"), 
+    border_color = "black"
+)
+p_heatmap
+
+
+# UMAP可视化
+Arm15_30.proj2 <- addUMAP(
+    ArchRProj = Arm15_30.proj2, 
     reducedDims = "IterativeLSI", 
     name = "UMAP", 
     nNeighbors = 30, 
@@ -593,18 +694,48 @@ Merged.proj2 <- addUMAP(
     metric = "cosine",
     force = FALSE
 )
-p <- plotEmbedding(ArchRProj = Merged.proj2,
+# 以样本、cluster等进行上色
+p_UMAP <- plotEmbedding(ArchRProj = Arm15_30.proj2,
                    embedding = "UMAP", 
                    colorBy = "cellColData", 
-                   name = c("Sample","cluster" , "Seurat.Clusters", "Harmony.Clusters"), 
+                   name = c("Sample","Clusters"), 
                    size =2)
-p
+p_UMAP
+p1 <- plotEmbedding(ArchRProj = Arm15_30.proj2, colorBy = "cellColData", name = "Sample", embedding = "UMAP")
+# 以cluster进行上色
+p2 <- plotEmbedding(ArchRProj = Arm15_30.proj2, colorBy = "cellColData", name = "Clusters", embedding = "UMAP")
+
+plotPDF(p1,p2, name = "Plot-UMAP-Sample-Clusters1.pdf", ArchRProj = Arm15_30.proj2, addDOC = FALSE, width = 5, height = 5)
 
 
-# library(ggpubr)
-p <- ggbarplot(perc, y="Freq", x="group",fill = "Var1",
+
+
+# Harmony后降维
+# 通过addHarmony调用Harmony对数据进行批次校正，创建了一个名为"Harmony"的reducedDims对象。
+# 通过UMAP或t-SNE对结果进行嵌入可视化，对迭代LSI结果和Harmony校正结果进行比较，评估Harmony的作用。
+Arm15_30.proj2_ha <- addUMAP(
+    ArchRProj = Arm15_30.proj2, 
+    reducedDims = "Harmony", 
+    name = "UMAPHarmony", 
+    nNeighbors = 30, 
+    minDist = 0.5, 
+    metric = "cosine"
+)
+p3 <- plotEmbedding(ArchRProj = Arm15_30.proj2_ha, colorBy = "cellColData", name = "Sample", embedding = "UMAPHarmony")
+# UMAP_ha_sample
+p4 <- plotEmbedding(ArchRProj = Arm15_30.proj2_ha, colorBy = "cellColData", name = "Clusters", embedding = "UMAPHarmony")
+# UMAP_ha_sample
+ggAlignPlots(p3, p4, type = "h")
+plotPDF(p3,p4, name = "Plot-UMAP2Harmony-Sample-Clusters.pdf", ArchRProj = Arm15_30.proj2_ha, addDOC = FALSE, width = 5, height = 5)
+
+
+# 堆叠直方图,出错
+BiocManager::install("ggpubr")
+library(ggpubr)
+
+p_plot <- ggbarplot(Arm15_30.proj2, y="Freq", x="group",fill = "Var1",
                   # change fill color by mpg_level
-         order = c("CTRL","RA"),
+         order = c("Arm15","Arm30"),
           color = "white",            # Set bar border colors to white
           palette = "uchicago",
           position = position_fill() ,# jco journal color palett. see ?ggpar
@@ -617,8 +748,267 @@ p <- ggbarplot(perc, y="Freq", x="group",fill = "Var1",
           lab.size = 25,
           rotate = FALSE,
           ggtheme = theme_minimal())
-p
+p_plot
 
+
+
+
+
+
+
+
+
+# 实现细胞类型注释
+# 根据染色质开放程度估计gene score
+# 所谓的基因得分，本质上就是用基因附近的调控元件去预测基因的表达量。  
+# ArchR允许用户提供复杂的自定义的距离加权开放性模型去计算这些基因得分。
+# 如果设置createArrowFiles的参数addGeneScoreMat = TRUE(默认为TRUE)，那么生成的Arrow文件中会包含基因得分矩阵
+
+# 鉴定标记基因
+devtools::install_github("immunogenomics/presto")
+library(presto)
+markersGS <- getMarkerFeatures(
+    ArchRProj = Arm15_30.proj2, 
+    useMatrix = "GeneScoreMatrix", 
+    groupBy = "Clusters",
+    bias = c("TSSEnrichment", "log10(nFrags)"),
+    testMethod = "wilcoxon"
+)
+# 返回一个SummarizedExperiment对象，行是感兴趣的特征（例如基因），列表示样本。
+
+# getMarkers()函数从SummarizedExperiment对象中提取出一个包含多个DataFrame对象的列表
+# 每个DataFrame对象都对应着一个聚类，记录着该聚类里相关的标记特征。
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.01 & Log2FC >= 1.25")
+markerList$C6
+# DataFrame with 6 rows and 9 columns
+#       seqnames     start       end  strand          name     idx    Log2FC         FDR  MeanDiff
+#          <Rle>   <array>   <array> <array>       <array> <array> <numeric>   <numeric> <numeric>
+# 17080     chr5 137871758 137865829       2        Pilrb2    1178   2.03336 4.70802e-14 0.1891156
+# 17079     chr5 137858049 137852147       2        Pilrb1    1177   1.54956 8.91735e-14 0.1774888
+# 6981     chr14 122475384 122480328       1          Zic2     867   1.35439 7.97787e-10 0.2354358
+# 6980     chr14 122475199 122470377       2 2610035F20Rik     866   1.34695 1.50515e-07 0.1879206
+# 7876     chr15 102954526 102956701       1        Hoxc11     886   1.38049 2.59827e-03 0.1184624
+# 2859     chr11  50916176  50898712       2          Zfp2     354   1.33940 4.50480e-03 0.0389412
+
+
+
+# 使用markerHeatmap()创建含有所有标记特征的可视化热图
+markerGenes  <- c(
+    "Xkr4","Zfp2","Rp1","Rgs20","Oprk1","Sulf1","St18","Olfr157","Mmp10","Tmem213","Vxn","Cpa6"
+  )
+#   "Zeb2","Id2","Gzma","Nkg7","Klrg1","Gzmb","Klrc1","Tbx21","Cx3cr1","Lef1","Sell","Bcl6","Eomes","Il7r","Ccr7","Id3","Tox","Tcf7","Zeb1"
+# "Eff", "CTL","Trans Mem", "Trans CTL Ⅰ", "Trans CTL Ⅱ", "MP", 
+#     "Mem-CTL", "Mem", "Eff-like Ⅰ", 
+#     "Exh-Pre", "Eff-like Ⅱ", "Exh-Trans", "Exh-Prog", "Exh-Term"
+BiocManager::install("magick")
+library(magick)
+heatmapGS <- plotMarkerHeatmap(
+  seMarker = markersGS, 
+  cutOff = "FDR <= 0.01 & Log2FC >= 1.25", 
+  labelMarkers = markerGenes,
+  transpose = TRUE
+)
+# Printing Top Marker Genes:
+# C1:
+# 	Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn, Cpa6, Prex2, A830018L16Rik, Mir6341, Gm17644, Sulf1
+# C2:
+# 	Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn, Cpa6, Prex2, A830018L16Rik, Mir6341, Gm17644, Sulf1
+# C3:
+# 	Xcl1, 4930568G15Rik, Msrb3, 4930556J02Rik, Gm31641, Cables1, Mir1901, Pmepa1, 1700021F07Rik, Ankrd60, Ecm1, Ptpn5, Mir7056, Mrgpra6, Btbd16
+# C4:
+# 	1700001K19Rik, Prg2, Olfr547, Pilrb2, Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn, Cpa6, Prex2
+# C5:
+# 	LOC102631757, Mir6985, 1700029I15Rik, Olfr159, Olfr29-ps1, Tnfrsf4, B930018H19Rik, Mmp10, Olfr157, Tmem213, Pilrb1, Xkr4, Rp1, Rgs20, Oprk1
+# C6:
+# 	Zfp2, Hoxc11, 2610035F20Rik, Zic2, Pilrb2, Pilrb1, Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn
+# C7:
+# 	Plagl1, Syde1, Nsg2, Gm12108, Gprc5c, 4931403G20Rik, Gm20751, Cd83, Il9, Fbxl21, Gm6498, LOC105245869, Sox21, Lrp12, Fignl2
+# C8:
+# 	Gm5779, Mir6410, Mir6927, Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn, Cpa6, Prex2, A830018L16Rik
+# C9:
+# 	Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn, Cpa6, Prex2, A830018L16Rik, Mir6341, Gm17644, Sulf1
+# C10:
+# 	Gm14137, Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn, Cpa6, Prex2, A830018L16Rik, Mir6341, Gm17644
+# C11:
+# 	Mir7665, Mir3074-2, Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn, Cpa6, Prex2, A830018L16Rik, Mir6341
+# C12:
+# 	1110038B12Rik, Snord52, Hspa1b, Hspa1l, Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn, Cpa6, Prex2
+# C13:
+# 	Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn, Cpa6, Prex2, A830018L16Rik, Mir6341, Gm17644, Sulf1
+# C14:
+# 	Xkr4, Rp1, Rgs20, Oprk1, Npbwr1, St18, Sntg1, 2610203C22Rik, Vxn, Cpa6, Prex2, A830018L16Rik, Mir6341, Gm17644, Sulf1
+# Identified 4498 markers!
+ComplexHeatmap::draw(heatmapGS, heatmap_legend_side = "bot", annotation_legend_side = "bot")
+plotPDF(heatmapGS, name = "GeneScores-Marker-Heatmap", width = 8, height = 6, ArchRProj = Arm15_30.proj2, addDOC = FALSE)
+dev.off()
+
+# 在UMAP嵌入上展示每个细胞的基因得分
+markerGenes  <- c(
+    "Xkr4","Zfp2","Rp1","Rgs20","Oprk1","Sulf1","St18","Olfr157","Mmp10","Tmem213","Vxn","Cpa6"
+  )
+install.packages("hexbin")
+library(hexbin)
+p_marker <- plotEmbedding(
+    ArchRProj = Arm15_30.proj2, 
+    colorBy = "GeneScoreMatrix", 
+    name = markerGenes, 
+    embedding = "UMAP",
+    quantCut = c(0.01, 0.95),
+    imputeWeights = NULL
+)
+p_marker
+do.call(cowplot::plot_grid, c(list(ncol = 3),p_marker))
+plotPDF(plotList = p_marker, 
+    name = "Plot-UMAP-Marker-Genes-WO-Imputation.pdf", 
+    ArchRProj = Arm15_30.proj2, 
+    addDOC = FALSE, width = 5, height = 5)
+
+
+# 对基因得分进行平滑处理
+Arm15_30.proj2 <- addImputeWeights(Arm15_30.proj2)
+markerGenes  <- c(
+    "Xkr4","Zfp2","Rp1","Rgs20","Oprk1","Sulf1","St18","Olfr157","Mmp10","Tmem213","Vxn","Cpa6"
+  )
+
+p_marker2 <- plotEmbedding(
+    ArchRProj = Arm15_30.proj2, 
+    colorBy = "GeneScoreMatrix", 
+    name = markerGenes, 
+    embedding = "UMAP",
+    imputeWeights = getImputeWeights(Arm15_30.proj2)
+)
+plotPDF(plotList = p_marker2, 
+    name = "Plot-UMAP-Marker-Genes-W-Imputation.pdf", 
+    ArchRProj = Arm15_30.proj2, 
+    addDOC = FALSE, width = 5, height = 5)
+
+
+
+
+# 使用ArchRBrowser绘制Track
+# 在基因组浏览器上浏览这些标记基因的局部染色体开放状态，类似于IGV
+# 函数会根据groupBy输入的组别信息在不同track上绘制每组的开放状态。
+markerGenes  <- c(
+     "Xkr4","Zfp2","Rp1","Rgs20","Oprk1","Sulf1","St18","Olfr157","Mmp10","Tmem213","Vxn","Cpa6"
+  )
+
+p_track <- plotBrowserTrack(
+    ArchRProj = Arm15_30.proj2, 
+    groupBy = "Clusters", 
+    geneSymbol = markerGenes, 
+    upstream = 50000,
+    downstream = 50000
+)
+grid::grid.newpage()
+grid::grid.draw(p$CD4) # 选择某基因绘制结果
+plotPDF(plotList = p_track, 
+    name = "Plot-Tracks-Marker-Genes.pdf", 
+    ArchRProj = Arm15_30.proj2, 
+    addDOC = FALSE, width = 5, height = 8)
+
+# 启动ArchRBrowser
+install.packages("rhandsontable")
+library(rhandsontable)
+ArchRBrowser(Arm15_30.proj2)
+
+
+
+## scATAC-seq细胞和scRNA-seq细胞整合分析
+## scRNA-seq输入文件为rds
+## 调用Seurat::FindTransferAnchors()，从而实现两种数据集之间的比较
+if(!file.exists("scRNA-Hematopoiesis-Granja-2019.rds")){
+    download.file(
+        url = "https://jeffgranja.s3.amazonaws.com/ArchR/TestData/scRNA-Hematopoiesis-Granja-2019.rds",
+        destfile = "scRNA-Hematopoiesis-Granja-2019.rds"
+    )
+}
+
+seRNA <- readRDS("scRNA-Hematopoiesis-Granja-2019.rds")
+seRNA
+## class: RangedSummarizedExperiment
+## dim: 20287 35582
+## metadata(0):
+## assays(1): counts
+## rownames(20287): FAM138A OR4F5 … S100B PRMT2
+## rowData names(3): gene_name gene_id exonLength
+## colnames(35582): CD34_32_R5:AAACCTGAGTATCGAA-1
+## CD34_32_R5:AAACCTGAGTCGTTTG-1 …
+## BMMC_10x_GREENLEAF_REP2:TTTGTTGCATGTGTCA-1
+## BMMC_10x_GREENLEAF_REP2:TTTGTTGCATTGAAAG-1
+## colData names(10): Group nUMI_pre … BioClassification Barcode
+
+colnames(colData(seRNA))
+# [1] "Group"             "nUMI_pre"          "nUMI"             
+# [4] "nGene"             "initialClusters"   "UMAP1"            
+# [7] "UMAP2"             "Clusters"          "BioClassification"
+# [10] "Barcode"
+
+table(colData(seRNA)$BioClassification)
+#        01_HSC 02_Early.Eryth  03_Late.Eryth  04_Early.Baso    05_CMP.LMPP 
+#          1425           1653            446            111           2260 
+#      06_CLP.1         07_GMP    08_GMP.Neut         09_pDC         10_cDC 
+#           903           2097           1050            544            325 
+#11_CD14.Mono.1 12_CD14.Mono.2   13_CD16.Mono         14_Unk       15_CLP.2 
+#          1800           4222            292            520            377 
+#      16_Pre.B           17_B      18_Plasma       19_CD8.N      20_CD4.N1 
+#           710           1711             62           1521           2470 
+#     21_CD4.N2       22_CD4.M      23_CD8.EM      24_CD8.CM          25_NK 
+#          2364           3539            796           2080           2143 
+#        26_Unk 
+#           161 
+
+
+
+
+
+
+
+
+
+
+
+## ArchR的拟混池重复
+## 拟混池(pesudo-bulk)指的就是将单细胞进行合并模拟成混池测序的ATAC-seq实验得到的数据
+table(Arm15_30.proj2$Clusters)
+#   C1  C10  C11  C12  C13  C14   C2   C3   C4   C5   C6   C7   C8   C9 
+# 1261 2808 1681  902 1274  862  297   99 1496 1317 1864  793 1442  735
+library(BSgenome.Mmusculus.UCSC.mm10)
+Arm15_30.proj3 <- addGroupCoverages(ArchRProj = Arm15_30.proj2, groupBy = "Clusters")   
+# 不使用所有的细胞鉴定peak，而是单独根据每一组细胞（例如聚类）单独鉴定peak，这样才有可能分析出不同组的特异性peak
+
+## 使用ArchR识别Peak
+## 推荐iterative overlap策略  
+?addReproduciblePeakSet()
+pathToMacs2 <- findMacs2()
+pathToMacs2 <- "../../../biosoft/MACS2/MACS2-2.2.7.1/bin/macs2"
+
+Arm15_30.proj4 <- addReproduciblePeakSet(
+    ArchRProj = Arm15_30.proj3, 
+    groupBy = "Clusters", 
+    pathToMacs2 = pathToMacs2
+)
+
+# 使用getPeakSet()函数以GRanges对象提取peak集。
+getPeakSet(Arm15_30.proj4)
+# 该peak集对象包括每个peak最初来源信息。然而这并不是意味着该peak只是在那个组中出现，而是意味着那组中的该peak拥有最高的标准化后显著性
+
+
+
+# 因为上一步找不到macs2，因此下面采用不推荐的TileMatrix方法  
+Arm15_30.proj21 <- addReproduciblePeakSet(
+    ArchRProj = Arm15_30.proj2, 
+    groupBy = "Clusters",
+    peakMethod = "Tiles",
+    method = "p"
+)
+getPeakSet(Arm15_30.proj4)
+
+
+
+
+
+# 没办法实现
+# Peak calling and motif activity calculation
 pathToMacs2 <- findMacs2()
 Merged.proj2 <- addReproduciblePeakSet(
     ArchRProj = Merged.proj2, 
@@ -653,6 +1043,28 @@ PeakMatrix <- getMatrixFromProject(
   threads = getArchRThreads(),
   logFile = createLogFile("getMatrixFromProject")
 )
+###
+
+
+
+
+# 细胞分化轨迹
+p_traj <- plotEmbedding(ArchRProj = Arm15_30.proj3, colorBy = "cellColData", name = "Clusters", embedding = "UMAP")
+trajectory <- c("C1","C2","C3","C4","C5","C6","C7","C8","C9","C10", "C11","C12","C13","C14")  # 瞎编的
+Arm15_30.proj4 <- addTrajectory(
+    ArchRProj = Arm15_30.proj3, 
+    name = "MyeloidU", 
+    groupBy = "Clusters",
+    trajectory = trajectory, 
+    embedding = "UMAP", 
+    force = TRUE
+)
+head(Arm15_30.proj4$MyeloidU[!is.na(Arm15_30.proj4$MyeloidU)])
+# [1] 68.240800  3.148266 61.582642  6.253989 60.710487  3.531164
+# ArchR根据trajectory来提取细胞，根据name来对细胞进行着色
+p_trajplot <- plotTrajectory(Arm15_30.proj4, trajectory = "MyeloidU", colorBy = "cellColData", name = "MyeloidU")
+p_trajplot[[1]]
+plotPDF(p_trajplot, name = "Plot-MyeloidU-Traj-UMAP.pdf", ArchRProj = Arm15_30.proj4, addDOC = FALSE, width = 5, height = 5)
 ```
 3. ArchR衔接到Signac  
 The union peak list was generated using a hybrid approach. Peaks were called using ArchR with default parameters based on clusters generated from the latent semantic indexing dimension reduction of the tile matrix, which allowed peaks to be called on unbiased cell clusters. In addition, we called peaks on the sample bam files (Arm d15, Arm d30) using macs2 as previously described with a q value of 0.001, then combined the two peak lists.   
